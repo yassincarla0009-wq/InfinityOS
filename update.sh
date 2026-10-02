@@ -319,6 +319,26 @@ EOF
   return 0
 }
 
+fix_flatpak() {
+  # Flatpak + Flathub = a real app store (Spotify, Discord, OBS, ...) in Software
+  apt-get install -y flatpak gnome-software-plugin-flatpak || return 1
+  flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
+  return 0
+}
+
+fix_archives() {
+  # open/extract every common archive type
+  apt-get install -y p7zip-full p7zip-rar unrar unzip zip || return 1
+  return 0
+}
+
+fix_codecs() {
+  # play every common video/audio format
+  apt-get install -y ffmpeg libavcodec-extra \
+    gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav || return 1
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -335,6 +355,9 @@ apply_once camera-v2    fix_camera
 apply_once wine-exe     fix_wine_exe
 apply_once glass-look-v2 fix_glass_look
 apply_once animations    fix_animations
+apply_once flatpak       fix_flatpak
+apply_once archives      fix_archives
+apply_once codecs        fix_codecs
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
