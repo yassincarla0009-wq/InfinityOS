@@ -32,4 +32,8 @@ exec update-manager
 SH
 chmod +x /usr/local/bin/infinityos-update
 
-echo "Infinity OS fixes applied (DNS / AdGuard + updater upgraded)."
+# --- Feature update: add cmatrix (Matrix rain in the terminal) ---
+apt-get install -y cmatrix 2>/dev/null || true
+
+echo "Infinity OS fixes applied (DNS / AdGuard + updater upgraded + cmatrix)."
+echo "Try it: run  cmatrix  in a terminal."
