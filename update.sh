@@ -56,6 +56,41 @@ apt-get install -y --reinstall cheese cheese-common 2>/dev/null || true
 # make sure every user can access the webcam device
 for u in $(ls /home 2>/dev/null); do usermod -aG video "$u" 2>/dev/null || true; done
 
+# --- Make Windows programs RUN on double-click (Wine), not open in Archive Manager ---
+# ensure Wine is present (it ships in the image; distro wine is a fallback)
+command -v wine >/dev/null 2>&1 || apt-get install -y wine 2>/dev/null || true
+
+# wrapper: run .exe directly, install .msi via msiexec
+cat > /usr/local/bin/infinityos-run-windows <<'SH'
+#!/bin/bash
+f="$1"
+case "${f,,}" in
+  *.msi) exec wine msiexec /i "$f" ;;
+  *)     exec wine "$f" ;;
+esac
+SH
+chmod +x /usr/local/bin/infinityos-run-windows
+
+# desktop entry that owns the Windows executable MIME types
+cat > /usr/share/applications/infinityos-wine.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Run Windows Program (Wine)
+Exec=/usr/local/bin/infinityos-run-windows %f
+NoDisplay=true
+MimeType=application/x-ms-dos-executable;application/x-msdownload;application/vnd.microsoft.portable-executable;application/x-msdos-program;application/x-msi;
+EOF
+update-desktop-database /usr/share/applications 2>/dev/null || true
+
+# set Wine as the DEFAULT for Windows executables (overrides the archive manager)
+MIMEFILE=/etc/xdg/mimeapps.list
+touch "$MIMEFILE"
+for mt in application/x-ms-dos-executable application/x-msdownload application/vnd.microsoft.portable-executable application/x-msdos-program application/x-msi; do
+  sed -i "\\#^${mt}=#d" "$MIMEFILE"
+done
+grep -q '^\[Default Applications\]' "$MIMEFILE" || echo '[Default Applications]' >> "$MIMEFILE"
+sed -i '/^\[Default Applications\]/a application/x-ms-dos-executable=infinityos-wine.desktop\napplication/x-msdownload=infinityos-wine.desktop\napplication/vnd.microsoft.portable-executable=infinityos-wine.desktop\napplication/x-msdos-program=infinityos-wine.desktop\napplication/x-msi=infinityos-wine.desktop' "$MIMEFILE"
+
 # --- Install the "update available" notifier (checks repo, pops a notification) ---
 cat > /usr/local/bin/infinityos-update-check <<'SH'
 #!/bin/bash
