@@ -339,6 +339,25 @@ fix_codecs() {
   return 0
 }
 
+fix_flathub_webapp() {
+  # a "Flathub App Store" web app (opens Flathub in Brave, ChromeOS-Flex style)
+  local BRAVE
+  BRAVE=$(command -v brave-browser || command -v brave-browser-stable || command -v brave 2>/dev/null)
+  [ -z "$BRAVE" ] && BRAVE="brave-browser"
+  cat > /usr/share/applications/infinityos-flathub.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Flathub App Store
+Comment=Browse and install apps from Flathub
+Exec=$BRAVE --app=https://flathub.org --class=Flathub
+Icon=system-software-install
+Categories=System;PackageManager;Utility;
+StartupNotify=true
+EOF
+  update-desktop-database /usr/share/applications 2>/dev/null || true
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -358,6 +377,7 @@ apply_once animations    fix_animations
 apply_once flatpak       fix_flatpak
 apply_once archives      fix_archives
 apply_once codecs        fix_codecs
+apply_once flathub-webapp fix_flathub_webapp
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
