@@ -254,6 +254,71 @@ EOF
   return 0
 }
 
+fix_animations() {
+  apt-get install -y git make gettext unzip libglib2.0-bin 2>/dev/null || true
+
+  # 1) force ALL animations on (system default)
+  mkdir -p /etc/dconf/db/local.d
+  cat > /etc/dconf/db/local.d/02-infinityos-anim <<EOF
+[org/gnome/desktop/interface]
+enable-animations=true
+EOF
+  dconf update 2>/dev/null || true
+
+  # 2) Burn-My-Windows: animated open/close on every window, menu & dialog.
+  #    Installed only if it genuinely supports this shell version (no forcing).
+  local BMW="burn-my-windows@schneegans.github.com"
+  local SV; SV=$(gnome-shell --version 2>/dev/null | grep -oE '[0-9]+' | head -1); SV=${SV:-42}
+  local BMW_OK=0
+  local TMP; TMP=$(mktemp -d)
+  if git clone --depth=1 https://github.com/Schneegans/Burn-My-Windows.git "$TMP/bmw" 2>/dev/null; then
+    ( cd "$TMP/bmw" && make >/dev/null 2>&1 ) || true
+    local ZIP; ZIP=$(ls "$TMP/bmw/"*.zip 2>/dev/null | head -1)
+    if [ -n "$ZIP" ]; then
+      local STAGE="$TMP/stage"; mkdir -p "$STAGE"
+      unzip -o "$ZIP" -d "$STAGE" >/dev/null 2>&1
+      # only install if metadata already lists our shell version — do NOT patch it
+      if grep -q "\"$SV\"" "$STAGE/metadata.json" 2>/dev/null; then
+        rm -rf "/usr/share/gnome-shell/extensions/$BMW"
+        mkdir -p "/usr/share/gnome-shell/extensions/$BMW"
+        cp -r "$STAGE/." "/usr/share/gnome-shell/extensions/$BMW/"
+        [ -d "/usr/share/gnome-shell/extensions/$BMW/schemas" ] && \
+          glib-compile-schemas "/usr/share/gnome-shell/extensions/$BMW/schemas" 2>/dev/null || true
+        BMW_OK=1
+      fi
+    fi
+  else
+    rm -rf "$TMP"; return 1   # no internet -> retry next update
+  fi
+  rm -rf "$TMP"
+
+  # 3) turn animations on for everyone logged in; enable the effect only if compatible
+  local EXT="user-theme@gnome-shell-extensions.gcampax.github.com"
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gsettings set org.gnome.desktop.interface enable-animations true" 2>/dev/null || true
+    if [ "$BMW_OK" = "1" ]; then
+      $G "mkdir -p ~/.config/burn-my-windows/profiles" 2>/dev/null || true
+      $G "bash -c 'printf \"[burn-my-windows-profile]\nfade-enable=true\nglide-enable=true\n\" > ~/.config/burn-my-windows/profiles/infinity.conf'" 2>/dev/null || true
+      $G "$E gnome-extensions enable $BMW" 2>/dev/null || true
+      $G "$E GSETTINGS_SCHEMA_DIR=/usr/share/gnome-shell/extensions/$BMW/schemas gsettings set org.gnome.shell.extensions.burn-my-windows active-profile \"/home/$u/.config/burn-my-windows/profiles/infinity.conf\"" 2>/dev/null || true
+    fi
+  done
+
+  # 4) system default enabled list for fresh users (add BMW only if it's compatible)
+  local LIST="'ubuntu-dock@ubuntu.com', 'ding@rastersoft.com', '$EXT'"
+  [ "$BMW_OK" = "1" ] && LIST="$LIST, '$BMW'"
+  cat >> /etc/dconf/db/local.d/02-infinityos-anim <<EOF
+
+[org/gnome/shell]
+enabled-extensions=[$LIST]
+EOF
+  dconf update 2>/dev/null || true
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -269,6 +334,7 @@ apply_once cmatrix      feat_cmatrix
 apply_once camera-v2    fix_camera
 apply_once wine-exe     fix_wine_exe
 apply_once glass-look-v2 fix_glass_look
+apply_once animations    fix_animations
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
