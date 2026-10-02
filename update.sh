@@ -2,6 +2,8 @@
 # Infinity OS maintenance fixes — run as root by "Infinity OS Updates".
 # Idempotent: safe to run repeatedly. Add new fixes here as they are released.
 
+REPO="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main"
+
 echo "Applying Infinity OS fixes..."
 
 # --- DNS / AdGuard (fixes early builds that shipped without a resolver) ---
@@ -44,8 +46,69 @@ apt-get update -y || true
 # --- Feature update: add cmatrix (Matrix rain in the terminal) ---
 apt-get install -y cmatrix || echo "   (cmatrix install failed - check internet)"
 
+# --- Install the "update available" notifier (checks repo, pops a notification) ---
+cat > /usr/local/bin/infinityos-update-check <<'SH'
+#!/bin/bash
+# Checks the repo for a newer version and shows a desktop notification.
+REPO="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main"
+sleep 25   # let the network/WiFi come up after login
+LOCAL=$(cat /etc/infinityos/version 2>/dev/null | tr -dc '0-9'); LOCAL=${LOCAL:-0}
+REMOTE=$(wget -qO- "$REPO/version" 2>/dev/null | tr -dc '0-9')
+[ -z "$REMOTE" ] && exit 0
+if [ "$REMOTE" -gt "$LOCAL" ] 2>/dev/null; then
+  notify-send -u normal -i system-software-update \
+    "Infinity OS — Update available" \
+    "A new update is ready. Open \"Infinity OS Updates\" to install it."
+fi
+SH
+chmod +x /usr/local/bin/infinityos-update-check
+
+# autostart the check for every user at login
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/infinityos-update-check.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Infinity OS Update Check
+Exec=/usr/local/bin/infinityos-update-check
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+EOF
+
+# --- Install the first-boot auto-fix service (applies this script once, on first boot) ---
+cat > /usr/local/bin/infinityos-firstboot <<'SH'
+#!/bin/bash
+REPO="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main"
+mkdir -p /var/lib/infinityos
+# only mark done if the fixes actually applied (needs internet)
+if wget -qO- "$REPO/update.sh" 2>/dev/null | bash; then
+  touch /var/lib/infinityos/firstboot-done
+  systemctl disable infinityos-firstboot.service 2>/dev/null || true
+fi
+SH
+chmod +x /usr/local/bin/infinityos-firstboot
+
+cat > /etc/systemd/system/infinityos-firstboot.service <<EOF
+[Unit]
+Description=Infinity OS first-boot fixes
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/infinityos/firstboot-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/infinityos-firstboot
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable infinityos-firstboot.service 2>/dev/null || true
+
+# --- Record the version we just applied (so the notifier knows we're current) ---
+mkdir -p /etc/infinityos
+wget -qO- "$REPO/version" 2>/dev/null | tr -dc '0-9' > /etc/infinityos/version || true
+
 if command -v cmatrix >/dev/null 2>&1; then
-  echo "Infinity OS fixes applied (DNS / AdGuard + updater + cmatrix INSTALLED)."
+  echo "Infinity OS fixes applied (DNS / AdGuard + updater + cmatrix INSTALLED + notifier)."
   echo "Try it now: run  cmatrix  in a terminal."
 else
   echo "Fixes applied, but cmatrix did not install (apt/network issue)."
