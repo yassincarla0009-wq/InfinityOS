@@ -187,10 +187,17 @@ EOF
 
 fix_glass_look() {
   # tools + the User Themes extension (lets us theme the taskbar/top bar)
-  apt-get install -y git gnome-shell-extensions 2>/dev/null || true
-
-  # liquid-glass icons (WhiteSur icon theme) installed system-wide from GitHub
+  apt-get install -y git sassc gnome-shell-extensions 2>/dev/null || true
   local TMP; TMP=$(mktemp -d)
+
+  # FULL WhiteSur GTK + GNOME-Shell theme (this is what makes the top-bar / control
+  # centre menu glass — guarantees the gnome-shell theme actually exists)
+  if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$TMP/wt" 2>/dev/null; then
+    ( cd "$TMP/wt" && ./install.sh -d /usr/share/themes -c Dark ) 2>/dev/null \
+      || ( cd "$TMP/wt" && ./install.sh -d /usr/share/themes ) 2>/dev/null || true
+  fi
+
+  # liquid-glass icons (WhiteSur icon theme)
   if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-icon-theme.git "$TMP/wi" 2>/dev/null; then
     ( cd "$TMP/wi" && ./install.sh -d /usr/share/icons -b ) 2>/dev/null || ( cd "$TMP/wi" && ./install.sh -d /usr/share/icons ) 2>/dev/null || true
   else
@@ -199,13 +206,12 @@ fix_glass_look() {
   rm -rf "$TMP"
   gtk-update-icon-cache /usr/share/icons/WhiteSur 2>/dev/null || true
 
-  # detect the glass GTK/Shell theme that shipped in the image
+  # detect the glass GTK/Shell theme name
   local GTK; GTK=$(ls -d /usr/share/themes/WhiteSur-Dark* /usr/share/themes/WhiteSur* 2>/dev/null | head -1)
   GTK=$(basename "${GTK:-WhiteSur-Dark}")
   local EXT="user-theme@gnome-shell-extensions.gcampax.github.com"
 
-  # system-wide defaults: glass WINDOWS (GTK) + glass TASKBAR/top-bar (Shell) +
-  # glass DOCK + liquid-glass icons + pop animations
+  # system-wide defaults (safe extension list keeps the dock + desktop icons working)
   mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
   [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
   cat > /etc/dconf/db/local.d/01-infinityos-look <<EOF
@@ -215,7 +221,7 @@ gtk-theme='$GTK'
 enable-animations=true
 
 [org/gnome/shell]
-enabled-extensions=['$EXT']
+enabled-extensions=['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com', '$EXT']
 
 [org/gnome/shell/extensions/user-theme]
 name='$GTK'
@@ -223,21 +229,27 @@ name='$GTK'
 [org/gnome/shell/extensions/dash-to-dock]
 transparency-mode='FIXED'
 customize-alphas=true
-min-alpha=0.200000
-max-alpha=0.500000
-background-opacity=0.300000
+min-alpha=0.150000
+max-alpha=0.450000
+background-opacity=0.250000
 EOF
   dconf update 2>/dev/null || true
 
-  # apply LIVE to anyone already logged in (windows + taskbar + icons), no wait
+  # apply LIVE to everyone already logged in: windows + taskbar + icons + GLASS DOCK
   for u in $(ls /home 2>/dev/null); do
     local uid; uid=$(id -u "$u" 2>/dev/null) || continue
-    local BUS="unix:path=/run/user/$uid/bus"
-    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gnome-extensions enable $EXT" 2>/dev/null || true
-    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.shell.extensions.user-theme name '$GTK'" 2>/dev/null || true
-    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.desktop.interface gtk-theme '$GTK'" 2>/dev/null || true
-    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur'" 2>/dev/null || true
-    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.desktop.interface enable-animations true" 2>/dev/null || true
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gnome-extensions enable $EXT" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.user-theme name '$GTK'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface gtk-theme '$GTK'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface enable-animations true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock customize-alphas true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock min-alpha 0.15" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock max-alpha 0.45" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.25" 2>/dev/null || true
   done
   return 0
 }
@@ -256,7 +268,7 @@ apply_once apt-sources  fix_apt_sources
 apply_once cmatrix      feat_cmatrix
 apply_once camera-v2    fix_camera
 apply_once wine-exe     fix_wine_exe
-apply_once glass-look   fix_glass_look
+apply_once glass-look-v2 fix_glass_look
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
