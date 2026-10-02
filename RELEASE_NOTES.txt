@@ -8,7 +8,7 @@ RELEASE: Infinity OS 1.0 (v2)
 BASE:    Ubuntu 22.04 LTS (GNOME) — fully rebranded, no Ubuntu apps
 ARCH:    64-bit (amd64)
 ISO:     InfinityOS.iso  (~4.75 GB)
-SHA256:  3295276DBC0913110F268BD329EE638D3709B1C322F58FE9BA60B5B40B2B08EB
+SHA256:  6892CF24715A4606C668F1A3928438D50D7898ABC6FA7B4CAB94FDC5AD878079
 
 ---------------------------------------------------------------
 WHAT IS IT

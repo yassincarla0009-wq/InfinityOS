@@ -13,7 +13,7 @@ APP = "Infinity OS USB Creator"
 # Download source. If it ends with ".", the tool downloads numbered parts
 # (InfinityOS.iso.001, .002, ...) and rejoins them. Otherwise it's a single-file link.
 ISO_URL = "https://github.com/yassincarla0009-wq/InfinityOS/releases/download/v1.0/InfinityOS.iso."
-KNOWN_SHA = "3295276dbc0913110f268bd329ee638d3709b1c322f58fe9ba60b5b40b2b08eb"
+KNOWN_SHA = "6892cf24715a4606c668f1a3928438d50d7898abc6fa7b4cab94fdc5ad878079"
 
 BG, PANEL, FG, MUTED = "#0b1020", "#161c30", "#e8ecff", "#8fa0c8"
 ACC, ACC_H, GOOD, BAD, WARN = "#00e5ff", "#00b8d4", "#00e676", "#ef5350", "#ffb300"
