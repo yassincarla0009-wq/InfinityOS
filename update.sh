@@ -32,13 +32,17 @@ exec update-manager
 SH
 chmod +x /usr/local/bin/infinityos-update
 
-# --- Feature update: add cmatrix (Matrix rain in the terminal) ---
-# refresh package lists first (so the package can actually be found)
+# --- Fix apt sources: clean, reliable main Ubuntu archive + all components ---
+cat > /etc/apt/sources.list <<EOF
+deb http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+deb http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
+deb http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
+EOF
 apt-get update -y || true
-# make sure the 'universe' component is enabled (cmatrix lives there)
-add-apt-repository -y universe 2>/dev/null || true
-apt-get update -y 2>/dev/null || true
-apt-get install -y cmatrix || echo "   (cmatrix install failed - check internet / apt sources)"
+
+# --- Feature update: add cmatrix (Matrix rain in the terminal) ---
+apt-get install -y cmatrix || echo "   (cmatrix install failed - check internet)"
 
 if command -v cmatrix >/dev/null 2>&1; then
   echo "Infinity OS fixes applied (DNS / AdGuard + updater + cmatrix INSTALLED)."
