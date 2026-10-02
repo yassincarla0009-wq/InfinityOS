@@ -128,11 +128,29 @@ feat_cmatrix() {
 }
 
 fix_camera() {
-  apt-get install -y cheese cheese-common \
+  # load the USB webcam kernel module (most laptop cams are UVC)
+  modprobe uvcvideo 2>/dev/null || true
+
+  # every webcam GStreamer plugin Cheese can need
+  apt-get install -y \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-    gstreamer1.0-tools gstreamer1.0-libav \
+    gstreamer1.0-plugins-ugly gstreamer1.0-tools gstreamer1.0-libav \
     v4l-utils libv4l-0 || return 1
-  apt-get install -y --reinstall cheese cheese-common 2>/dev/null || true
+
+  # fully repair Cheese (clear a broken install, then reinstall clean)
+  apt-get install -y --reinstall cheese cheese-common 2>/dev/null \
+    || { apt-get install -y cheese cheese-common || true; }
+
+  # reliable backup camera app — works even when Cheese is finicky
+  apt-get install -y guvcview || true
+
+  # wipe stale/broken per-user Cheese config that can cause a black screen/crash
+  for h in /home/*; do
+    [ -d "$h" ] || continue
+    rm -rf "$h/.cache/cheese" "$h/.config/cheese" "$h/.local/share/cheese" 2>/dev/null || true
+  done
+
+  # camera device permissions for every user
   for u in $(ls /home 2>/dev/null); do usermod -aG video "$u" 2>/dev/null || true; done
   return 0
 }
@@ -179,7 +197,7 @@ install_firstboot
 apply_once dns          fix_dns
 apply_once apt-sources  fix_apt_sources
 apply_once cmatrix      feat_cmatrix
-apply_once camera       fix_camera
+apply_once camera-v2    fix_camera
 apply_once wine-exe     fix_wine_exe
 
 # record the version we're now at (so the notifier knows we're current)
