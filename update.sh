@@ -1,5 +1,5 @@
 #!/bin/bash
-# Infinity OS maintenance fixes — run as root by the "Infinity OS Updates" app.
+# Infinity OS maintenance fixes — run as root by "Infinity OS Updates".
 # Idempotent: safe to run repeatedly. Add new fixes here as they are released.
 
 echo "Applying Infinity OS fixes..."
@@ -11,10 +11,25 @@ DNS=94.140.14.14 94.140.15.15
 FallbackDNS=1.1.1.1 8.8.8.8
 DNSStubListener=yes
 EOF
-if [ ! -e /etc/resolv.conf ]; then
-  ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-fi
+[ -e /etc/resolv.conf ] || ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 systemctl enable systemd-resolved 2>/dev/null || true
 systemctl restart systemd-resolved 2>/dev/null || true
 
-echo "Infinity OS fixes applied (DNS / AdGuard)."
+# --- Upgrade the built-in "Infinity OS Updates" app to the latest version ---
+cat > /usr/local/bin/infinityos-update <<'SH'
+#!/bin/bash
+FIX_URL="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main/update.sh"
+SCRIPT='echo "===== Infinity OS Updates ====="; echo;
+echo ">> Updating system packages..."; sudo apt update && sudo apt full-upgrade -y; echo;
+echo ">> Applying latest Infinity OS fixes..."; ( wget -qO- '"$FIX_URL"' | sudo bash ) 2>/dev/null || echo "   (no extra fixes)";
+echo; echo "Infinity OS is up to date. Press Enter to close."; read'
+for t in gnome-terminal x-terminal-emulator xterm konsole; do
+  if command -v "$t" >/dev/null 2>&1; then
+    if [ "$t" = "gnome-terminal" ]; then exec gnome-terminal -- bash -c "$SCRIPT"; else exec "$t" -e bash -c "$SCRIPT"; fi
+  fi
+done
+exec update-manager
+SH
+chmod +x /usr/local/bin/infinityos-update
+
+echo "Infinity OS fixes applied (DNS / AdGuard + updater upgraded)."
