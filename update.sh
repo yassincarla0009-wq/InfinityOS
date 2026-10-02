@@ -185,6 +185,63 @@ EOF
   return 0
 }
 
+fix_glass_look() {
+  # tools + the User Themes extension (lets us theme the taskbar/top bar)
+  apt-get install -y git gnome-shell-extensions 2>/dev/null || true
+
+  # liquid-glass icons (WhiteSur icon theme) installed system-wide from GitHub
+  local TMP; TMP=$(mktemp -d)
+  if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-icon-theme.git "$TMP/wi" 2>/dev/null; then
+    ( cd "$TMP/wi" && ./install.sh -d /usr/share/icons -b ) 2>/dev/null || ( cd "$TMP/wi" && ./install.sh -d /usr/share/icons ) 2>/dev/null || true
+  else
+    rm -rf "$TMP"; return 1   # no internet -> retry next update
+  fi
+  rm -rf "$TMP"
+  gtk-update-icon-cache /usr/share/icons/WhiteSur 2>/dev/null || true
+
+  # detect the glass GTK/Shell theme that shipped in the image
+  local GTK; GTK=$(ls -d /usr/share/themes/WhiteSur-Dark* /usr/share/themes/WhiteSur* 2>/dev/null | head -1)
+  GTK=$(basename "${GTK:-WhiteSur-Dark}")
+  local EXT="user-theme@gnome-shell-extensions.gcampax.github.com"
+
+  # system-wide defaults: glass WINDOWS (GTK) + glass TASKBAR/top-bar (Shell) +
+  # glass DOCK + liquid-glass icons + pop animations
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/01-infinityos-look <<EOF
+[org/gnome/desktop/interface]
+icon-theme='WhiteSur'
+gtk-theme='$GTK'
+enable-animations=true
+
+[org/gnome/shell]
+enabled-extensions=['$EXT']
+
+[org/gnome/shell/extensions/user-theme]
+name='$GTK'
+
+[org/gnome/shell/extensions/dash-to-dock]
+transparency-mode='FIXED'
+customize-alphas=true
+min-alpha=0.200000
+max-alpha=0.500000
+background-opacity=0.300000
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply LIVE to anyone already logged in (windows + taskbar + icons), no wait
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local BUS="unix:path=/run/user/$uid/bus"
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gnome-extensions enable $EXT" 2>/dev/null || true
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.shell.extensions.user-theme name '$GTK'" 2>/dev/null || true
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.desktop.interface gtk-theme '$GTK'" 2>/dev/null || true
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur'" 2>/dev/null || true
+    su - "$u" -c "DBUS_SESSION_BUS_ADDRESS=$BUS gsettings set org.gnome.desktop.interface enable-animations true" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -199,6 +256,7 @@ apply_once apt-sources  fix_apt_sources
 apply_once cmatrix      feat_cmatrix
 apply_once camera-v2    fix_camera
 apply_once wine-exe     fix_wine_exe
+apply_once glass-look   fix_glass_look
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
