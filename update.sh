@@ -358,6 +358,71 @@ EOF
   return 0
 }
 
+fix_dns_malware() {
+  # Cloudflare malware-blocking (1.1.1.2) + AdGuard (ads/trackers/malware) —
+  # same protection family as the Windows app, forced over the router's DNS.
+  cat > /etc/systemd/resolved.conf <<EOF
+[Resolve]
+DNS=1.1.1.2 1.0.0.2 94.140.14.14 94.140.15.15
+FallbackDNS=1.1.1.2 94.140.14.14
+DNSStubListener=yes
+EOF
+  [ -e /etc/resolv.conf ] || ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+  systemctl enable systemd-resolved 2>/dev/null || true
+  systemctl restart systemd-resolved 2>/dev/null || true
+  mkdir -p /etc/NetworkManager/conf.d
+  cat > /etc/NetworkManager/conf.d/00-infinityos-dns.conf <<EOF
+[main]
+dns=systemd-resolved
+
+[global-dns-domain-*]
+servers=1.1.1.2,1.0.0.2,94.140.14.14,94.140.15.15
+EOF
+  systemctl reload NetworkManager 2>/dev/null || true
+  return 0
+}
+
+fix_antivirus() {
+  # ClamAV (on-demand, light) + ClamTk GUI, branded as "Infinity Antivirus"
+  apt-get install -y clamav clamtk || return 1
+  systemctl stop clamav-freshclam 2>/dev/null || true
+  freshclam 2>/dev/null || true
+  systemctl enable --now clamav-freshclam 2>/dev/null || true
+  cat > /usr/share/applications/infinityos-antivirus.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Infinity Antivirus
+Comment=Scan files and folders for malware (ClamAV)
+Exec=clamtk
+Icon=clamtk
+Categories=System;Security;Utility;
+StartupNotify=true
+EOF
+  update-desktop-database /usr/share/applications 2>/dev/null || true
+  return 0
+}
+
+fix_dock_pin() {
+  # make sure the side dock is on so apps can be pinned (right-click > Pin to Dash)
+  cat > /etc/dconf/db/local.d/03-infinityos-dock <<EOF
+[org/gnome/shell/extensions/dash-to-dock]
+dock-position='LEFT'
+dock-fixed=true
+show-apps-at-top=true
+EOF
+  dconf update 2>/dev/null || true
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gnome-extensions enable ubuntu-dock@ubuntu.com" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'LEFT'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock show-apps-at-top true" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -378,6 +443,9 @@ apply_once flatpak       fix_flatpak
 apply_once archives      fix_archives
 apply_once codecs        fix_codecs
 apply_once flathub-webapp fix_flathub_webapp
+apply_once dns-malware    fix_dns_malware
+apply_once antivirus      fix_antivirus
+apply_once dock-pin       fix_dock_pin
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
