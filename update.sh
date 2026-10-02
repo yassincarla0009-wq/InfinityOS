@@ -46,6 +46,16 @@ apt-get update -y || true
 # --- Feature update: add cmatrix (Matrix rain in the terminal) ---
 apt-get install -y cmatrix || echo "   (cmatrix install failed - check internet)"
 
+# --- Fix the camera (Cheese): restore app + webcam plugins + permissions ---
+apt-get install -y cheese cheese-common \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+  gstreamer1.0-tools gstreamer1.0-libav \
+  v4l-utils libv4l-0 2>/dev/null || echo "   (camera packages failed - check internet)"
+# repair a broken/half-configured Cheese if it was already installed
+apt-get install -y --reinstall cheese cheese-common 2>/dev/null || true
+# make sure every user can access the webcam device
+for u in $(ls /home 2>/dev/null); do usermod -aG video "$u" 2>/dev/null || true; done
+
 # --- Install the "update available" notifier (checks repo, pops a notification) ---
 cat > /usr/local/bin/infinityos-update-check <<'SH'
 #!/bin/bash
