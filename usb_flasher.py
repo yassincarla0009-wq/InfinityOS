@@ -12,7 +12,7 @@ import customtkinter as ctk
 APP = "Infinity OS USB Creator"
 # Download source. If it ends with ".", the tool downloads numbered parts
 # (InfinityOS.iso.001, .002, ...) and rejoins them. Otherwise it's a single-file link.
-ISO_URL = "https://github.com/yassincarla0009-wq/InfinityOS/releases/download/v1.0/InfinityOS.iso."
+ISO_URL = "https://github.com/yassincarla0009-wq/InfinityOS-ISO/releases/download/v1.0/InfinityOS.iso."
 KNOWN_SHA = "563aaae70ace178f7fc8b4471c65295b6a94874deff5c2c79e7983eb28e3316a"
 
 BG, PANEL, FG, MUTED = "#0b1020", "#161c30", "#e8ecff", "#8fa0c8"
