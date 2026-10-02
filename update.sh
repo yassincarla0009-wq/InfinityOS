@@ -33,7 +33,16 @@ SH
 chmod +x /usr/local/bin/infinityos-update
 
 # --- Feature update: add cmatrix (Matrix rain in the terminal) ---
-apt-get install -y cmatrix 2>/dev/null || true
+# refresh package lists first (so the package can actually be found)
+apt-get update -y || true
+# make sure the 'universe' component is enabled (cmatrix lives there)
+add-apt-repository -y universe 2>/dev/null || true
+apt-get update -y 2>/dev/null || true
+apt-get install -y cmatrix || echo "   (cmatrix install failed - check internet / apt sources)"
 
-echo "Infinity OS fixes applied (DNS / AdGuard + updater upgraded + cmatrix)."
-echo "Try it: run  cmatrix  in a terminal."
+if command -v cmatrix >/dev/null 2>&1; then
+  echo "Infinity OS fixes applied (DNS / AdGuard + updater + cmatrix INSTALLED)."
+  echo "Try it now: run  cmatrix  in a terminal."
+else
+  echo "Fixes applied, but cmatrix did not install (apt/network issue)."
+fi
