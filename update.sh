@@ -185,6 +185,39 @@ EOF
   return 0
 }
 
+fix_wine_proper() {
+  # THE big fix: most .exe fail to launch because 32-bit (i386) support is missing.
+  dpkg --add-architecture i386 2>/dev/null || true
+  apt-get update -y || true
+  # full Wine (64 + 32 bit) + winbind + winetricks (deps) + cabextract
+  apt-get install -y --install-recommends wine wine64 wine32 winbind winetricks cabextract 2>/dev/null \
+    || apt-get install -y --install-recommends wine winbind winetricks 2>/dev/null \
+    || apt-get install -y wine || return 1
+
+  # better run wrapper: own prefix, auto-init on first run, quiet logs
+  cat > /usr/local/bin/infinityos-run-windows <<'SH'
+#!/bin/bash
+export WINEPREFIX="$HOME/.wine-infinity"
+export WINEDEBUG=-all
+export WINEDLLOVERRIDES="mscoree,mshtml="   # skip mono/gecko nag popups
+# first-time setup of the Wine prefix
+[ -d "$WINEPREFIX" ] || wineboot -i >/dev/null 2>&1
+f="$1"
+case "${f,,}" in
+  *.msi) exec wine msiexec /i "$f" ;;
+  *)     exec wine "$f" ;;
+esac
+SH
+  chmod +x /usr/local/bin/infinityos-run-windows
+
+  # Bottles (Flatpak) = a rock-solid Wine manager for stubborn apps (Flathub works great here)
+  if command -v flatpak >/dev/null 2>&1; then
+    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
+    flatpak install -y --noninteractive flathub com.usebottles.bottles 2>/dev/null || true
+  fi
+  return 0
+}
+
 fix_glass_look() {
   # tools + the User Themes extension (lets us theme the taskbar/top bar)
   apt-get install -y git sassc gnome-shell-extensions 2>/dev/null || true
@@ -437,6 +470,7 @@ apply_once apt-sources  fix_apt_sources
 apply_once cmatrix      feat_cmatrix
 apply_once camera-v2    fix_camera
 apply_once wine-exe     fix_wine_exe
+apply_once wine-proper  fix_wine_proper
 apply_once glass-look-v2 fix_glass_look
 apply_once animations    fix_animations
 apply_once flatpak       fix_flatpak
