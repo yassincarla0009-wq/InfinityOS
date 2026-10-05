@@ -1,0 +1,6 @@
+# Keep the update script LF so its GPG signature always matches what GitHub serves
+update.sh text eol=lf
+*.sh text eol=lf
+# Treat signatures as binary - never transform them
+*.sig -text
+*.asc -text

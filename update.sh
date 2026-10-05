@@ -27,12 +27,50 @@ apply_once() {
 # ===== Always-current, instant (just writes files, no apt) =====
 
 install_updater_app() {
+  # 1) THE VERIFIER: downloads the update + its GPG signature, verifies the
+  #    signature against the trusted public key baked in below, and ONLY runs
+  #    the update (as root) if the signature is valid. A tampered or unsigned
+  #    update is REFUSED - even if GitHub itself were compromised.
+  cat > /usr/local/bin/infinityos-verify-update <<'VERIFYEOF'
+#!/bin/bash
+REPO="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main"
+command -v gpg >/dev/null 2>&1 || sudo apt-get install -y gnupg >/dev/null 2>&1
+tmp=$(mktemp -d)
+export GNUPGHOME="$tmp/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+gpg --batch --import >/dev/null 2>&1 <<'PGP'
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEasP5kBYJKwYBBAHaRw8BAQdAHOKliI3g7qP0UMuGwpFoiNOp2aoRlmdjvcgG
+QTqVeV20MUluZmluaXR5IE9TIDxpbmZpbml0eW9zQHVzZXJzLm5vcmVwbHkuZ2l0
+aHViLmNvbT6IkAQTFgoAOBYhBCJz8x1bN54Hwb7MkV8DUROK/9ikBQJqw/mQAhsj
+BQsJCAcCBhUKCQgLAgQWAgMBAh4BAheAAAoJEF8DUROK/9ik930A/1GP6pDdpfCG
+1HUJcj/TkSimHTWyj2WLs4Lp021hbHVKAP0QiYLhEh/p1+ti9LjE6Vzf4ySImY1Q
+VgaCzX7WTcnABg==
+=OGvi
+-----END PGP PUBLIC KEY BLOCK-----
+PGP
+if ! wget -q -O "$tmp/update.sh" "$REPO/update.sh" || ! wget -q -O "$tmp/update.sh.sig" "$REPO/update.sh.sig"; then
+  echo "   Could not download the update (check your internet)."; rm -rf "$tmp"; exit 1
+fi
+if gpg --batch --verify "$tmp/update.sh.sig" "$tmp/update.sh" >/dev/null 2>&1; then
+  echo "   Signature verified OK - applying trusted Infinity OS update..."
+  sudo bash "$tmp/update.sh"; rc=0
+else
+  echo "   !!! SIGNATURE INVALID - update REFUSED. Nothing was run; your system is safe."
+  echo "       (The script may be tampered with, or its signature is missing.)"
+  rc=2
+fi
+rm -rf "$tmp"
+exit $rc
+VERIFYEOF
+  chmod +x /usr/local/bin/infinityos-verify-update
+
+  # 2) THE LAUNCHER the user clicks ("Infinity OS Updates")
   cat > /usr/local/bin/infinityos-update <<'SH'
 #!/bin/bash
-FIX_URL="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main/update.sh"
 SCRIPT='echo "===== Infinity OS Updates ====="; echo;
 echo ">> Updating system packages..."; sudo apt update && sudo apt full-upgrade -y; echo;
-echo ">> Applying latest Infinity OS fixes..."; ( wget -qO- '"$FIX_URL"' | sudo bash ) 2>/dev/null || echo "   (no extra fixes)";
+echo ">> Checking for a SIGNED Infinity OS update..."; /usr/local/bin/infinityos-verify-update;
 echo; echo "Infinity OS is up to date. Press Enter to close."; read'
 for t in gnome-terminal x-terminal-emulator xterm konsole; do
   if command -v "$t" >/dev/null 2>&1; then
@@ -75,7 +113,15 @@ install_firstboot() {
 #!/bin/bash
 REPO="https://raw.githubusercontent.com/yassincarla0009-wq/InfinityOS/main"
 mkdir -p /var/lib/infinityos
-if wget -qO- "$REPO/update.sh" 2>/dev/null | bash; then
+ok=1
+if [ -x /usr/local/bin/infinityos-verify-update ]; then
+  # signature-checked path (normal case)
+  /usr/local/bin/infinityos-verify-update || ok=0
+else
+  # one-time bootstrap fallback if the verifier isn't installed yet
+  wget -qO- "$REPO/update.sh" 2>/dev/null | bash || ok=0
+fi
+if [ "$ok" = "1" ]; then
   touch /var/lib/infinityos/firstboot-done
   systemctl disable infinityos-firstboot.service 2>/dev/null || true
 fi
