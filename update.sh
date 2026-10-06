@@ -719,10 +719,8 @@ RECOVERY
 
 
 fix_set_adguard_cloudflare_d_20261006165005() {
-apt-get update -y && apt-get install -y cmatrix
-if ! grep -Fxq "alias InfinityOS='cmatrix'" /etc/bash.bashrc; then
-    echo "alias InfinityOS='cmatrix'" >> /etc/bash.bashrc
-fi
+  # (this update previously mis-added a cmatrix alias by mistake - now it REMOVES it)
+  sed -i "/alias InfinityOS='cmatrix'/d" /etc/bash.bashrc 2>/dev/null || true
   return 0
 }
 
@@ -863,6 +861,27 @@ fix_infinity_alias() {
   return 0
 }
 
+fix_ai_alias() {
+  # 1) nuke the old cmatrix alias from every shell config
+  local RE="/alias[[:space:]]+(InfinityOS|infinityos|mrinfinity|MrInfinity|mrinf)=/d"
+  for f in /etc/bash.bashrc /etc/profile /etc/zsh/zshrc /etc/profile.d/*.sh; do
+    [ -f "$f" ] && sed -i -E "$RE" "$f" 2>/dev/null || true
+  done
+  for h in /home/* /root; do
+    [ -d "$h" ] || continue
+    for f in "$h/.bashrc" "$h/.bash_aliases" "$h/.zshrc" "$h/.profile"; do
+      [ -f "$f" ] && sed -i -E "$RE" "$f" 2>/dev/null || true
+    done
+  done
+  # 2) make 'mrinf' (and infinityos / mrinfinity) launch Mr Infinity
+  if [ -f /usr/local/bin/InfinityOS ]; then
+    ln -sf /usr/local/bin/InfinityOS /usr/local/bin/mrinf 2>/dev/null || true
+    ln -sf /usr/local/bin/InfinityOS /usr/local/bin/mrinfinity 2>/dev/null || true
+    ln -sf /usr/local/bin/InfinityOS /usr/local/bin/infinityos 2>/dev/null || true
+  fi
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -898,6 +917,7 @@ apply_once full-recovery  fix_full_recovery
 apply_once recovery-more  fix_recovery_more
 apply_once mr-infinity    fix_mr_infinity
 apply_once infinity-alias fix_infinity_alias
+apply_once ai-alias-mrinf fix_ai_alias
 
 apply_once set-adguard-cloudflare-d-20261006165005 fix_set_adguard_cloudflare_d_20261006165005
 
