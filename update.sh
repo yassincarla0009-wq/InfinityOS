@@ -518,6 +518,13 @@ fix_makean_option_for_user_i_20261006123351() {
   return 0
 }
 
+
+fix_makean_option_for_user_i_20261006123637() {
+  apt-get update -y
+  apt-get install -y gnome-startup-applications
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -546,6 +553,8 @@ apply_once dock-pin       fix_dock_pin
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
 apply_once makean-option-for-user-i-20261006123351 fix_makean_option_for_user_i_20261006123351
+
+apply_once makean-option-for-user-i-20261006123637 fix_makean_option_for_user_i_20261006123637
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
