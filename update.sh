@@ -1022,6 +1022,153 @@ MRINF
   return 0
 }
 
+fix_mr_infinity_v3() {
+  command -v python3 >/dev/null 2>&1 || apt-get install -y python3 2>/dev/null || true
+  apt-get install -y gdebi-core curl wget android-tools-adb 2>/dev/null || true
+  cat > /usr/local/bin/InfinityOS <<'MRINF'
+#!/usr/bin/env python3
+# Mr Infinity - the built-in AI of Infinity OS. Type: mrinf
+import os, sys, json, re, time, shutil, subprocess, urllib.request, urllib.error
+
+CFG_DIR = os.path.expanduser("~/.config/infinityos")
+CFG = os.path.join(CFG_DIR, "mrinfinity.json")
+UA = "Mozilla/5.0 (X11; Linux x86_64)"
+SYSTEM = (
+  "You are Mr Infinity, the powerful built-in AI assistant of Infinity OS, a Linux (Ubuntu-based) desktop. "
+  "You are knowledgeable and helpful - answer anything.\n"
+  "ACTIONS you can take (the user confirms before anything runs):\n"
+  "- OPEN an app: [[OPEN: <command>]]  e.g. [[OPEN: brave-browser]], [[OPEN: nautilus]]\n"
+  "- RUN any command (including as ROOT with sudo): [[RUN: <command>]]\n"
+  "- INSTALL from repos: [[RUN: sudo apt-get install -y <pkg>]] ; snap/flatpak also fine\n"
+  "- DOWNLOAD & install a .deb from a URL: [[RUN: cd /tmp && wget -qO app.deb '<url>' && sudo apt-get install -y ./app.deb]]\n"
+  "- DOWNLOAD an AppImage: [[RUN: mkdir -p ~/Applications && wget -qO ~/Applications/app.AppImage '<url>' && chmod +x ~/Applications/app.AppImage]]\n"
+  "- install a local .deb: [[RUN: sudo apt-get install -y /full/path/to/file.deb]]\n"
+  "- ADB (Android Debug Bridge) for phones/tablets: [[RUN: adb devices]], [[RUN: adb install /path/app.apk]], [[RUN: adb reboot]] etc.\n"
+  "Only use actions when the user wants them. NEVER suggest destructive commands (no rm -rf of system paths, "
+  "no formatting/dd to disks, no fork bombs). Keep replies short and friendly."
+)
+DANGER = ["rm -rf /", "rm -rf ~", "mkfs", "dd if=", "of=/dev/", ":(){", "chmod -r 777 /",
+          "> /dev/sd", "fdisk ", "parted ", "userdel", "deluser"]
+
+def load_cfg():
+    try:
+        with open(CFG) as f: return json.load(f)
+    except Exception: return {}
+
+def save_cfg(c):
+    os.makedirs(CFG_DIR, exist_ok=True)
+    with open(CFG, "w") as f: json.dump(c, f)
+    try: os.chmod(CFG, 0o600)
+    except Exception: pass
+
+def open_browser(url):
+    for b in ["brave-browser", "brave-browser-stable", "firefox", "xdg-open"]:
+        if shutil.which(b):
+            subprocess.Popen([b, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return
+
+def pick_model(key):
+    prefs = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-70b-versatile",
+             "openai/gpt-oss-20b", "llama-3.1-8b-instant", "qwen/qwen3.8-27b"]
+    try:
+        req = urllib.request.Request("https://api.groq.com/openai/v1/models",
+            headers={"Authorization": "Bearer " + key, "User-Agent": UA})
+        ids = [m["id"] for m in json.load(urllib.request.urlopen(req, timeout=20))["data"]]
+        for p in prefs:
+            if p in ids: return p
+        for i in ids:
+            if not any(x in i for x in ["whisper", "guard", "orpheus", "tts"]): return i
+    except Exception:
+        pass
+    return "llama-3.3-70b-versatile"
+
+def setup():
+    print("\n  ∞  Welcome to Mr Infinity - your Infinity OS AI assistant!\n")
+    print("  You need a FREE Groq API key (takes about a minute).")
+    print("  Opening the Groq console in your browser...")
+    open_browser("https://console.groq.com/keys")
+    print("  -> Sign in, click 'Create API Key', copy it, then paste it below.\n")
+    key = input("  Paste your Groq API key (starts with gsk_): ").strip()
+    if not key.startswith("gsk_"):
+        print("  That doesn't look like a Groq key. Run 'mrinf' again to retry."); sys.exit(1)
+    print("  Checking your key...")
+    cfg = {"key": key, "model": pick_model(key)}
+    save_cfg(cfg)
+    print("  Saved! (model: %s). You won't have to do this again.\n" % cfg["model"])
+    return cfg
+
+def ask(cfg, messages, tries=0):
+    body = json.dumps({"model": cfg["model"], "messages": messages, "temperature": 0.4}).encode()
+    req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=body,
+        headers={"Authorization": "Bearer " + cfg["key"], "Content-Type": "application/json", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            return json.load(r)["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        if e.code == 429 and tries < 3:
+            print("  ⏳ Groq is rate-limiting - waiting 15s then retrying...")
+            time.sleep(15); return ask(cfg, messages, tries + 1)
+        if e.code in (401, 403):
+            raise RuntimeError("your API key looks invalid or blocked - run 'mrinf --setkey' to re-enter it")
+        raise RuntimeError("Groq error %s - try again in a moment" % e.code)
+    except urllib.error.URLError:
+        raise RuntimeError("no internet connection")
+
+def act(text):
+    for cmd in re.findall(r"\[\[OPEN:\s*(.+?)\]\]", text):
+        try:
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            print("  \U0001f680 opened: " + cmd)
+        except Exception as e:
+            print("  (couldn't open %s: %s)" % (cmd, e))
+    for cmd in re.findall(r"\[\[RUN:\s*(.+?)\]\]", text):
+        if any(d in cmd.lower() for d in DANGER):
+            print("  ⛔ refused (looks destructive): " + cmd); continue
+        print("\n  Mr Infinity wants to run:\n    \033[1m" + cmd + "\033[0m")
+        try:
+            ok = input("  Run it? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            ok = "n"
+        if ok == "y":
+            print("  ---"); subprocess.call(cmd, shell=True); print("  --- done.")
+        else:
+            print("  Skipped.")
+    return re.sub(r"\[\[(OPEN|RUN):.*?\]\]", "", text).strip()
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("--setkey", "--reset", "setup"):
+        setup(); return
+    cfg = load_cfg()
+    if not cfg.get("key"):
+        cfg = setup()
+    if len(sys.argv) > 1:
+        msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": " ".join(sys.argv[1:])}]
+        try: print("  Mr Infinity:", act(ask(cfg, msgs)))
+        except Exception as e: print("  (error: %s)" % e)
+        return
+    print("  ∞ Mr Infinity is ready - I can chat, open/install/download apps, run commands, use adb. 'exit' to quit.\n")
+    msgs = [{"role": "system", "content": SYSTEM}]
+    while True:
+        try: q = input("  You: ").strip()
+        except (EOFError, KeyboardInterrupt): print(); break
+        if q.lower() in ("exit", "quit", "bye"): print("  Bye! ∞"); break
+        if not q: continue
+        msgs.append({"role": "user", "content": q})
+        try:
+            ans = ask(cfg, msgs)
+        except Exception as e:
+            print("  (error: %s)" % e); continue
+        msgs.append({"role": "assistant", "content": ans})
+        print("  Mr Infinity:", act(ans), "\n")
+
+if __name__ == "__main__":
+    main()
+MRINF
+  chmod +x /usr/local/bin/InfinityOS
+  for n in infinityos mrinfinity mrinf; do ln -sf /usr/local/bin/InfinityOS "/usr/local/bin/$n" 2>/dev/null || true; done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1059,6 +1206,7 @@ apply_once mr-infinity    fix_mr_infinity
 apply_once infinity-alias fix_infinity_alias
 apply_once ai-alias-mrinf fix_ai_alias
 apply_once mr-infinity-v2 fix_mr_infinity_v2
+apply_once mr-infinity-v3 fix_mr_infinity_v3
 
 apply_once set-adguard-cloudflare-d-20261006165005 fix_set_adguard_cloudflare_d_20261006165005
 
