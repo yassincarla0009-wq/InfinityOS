@@ -847,6 +847,22 @@ MRINF
   return 0
 }
 
+fix_infinity_alias() {
+  # Remove any old alias that hijacks 'InfinityOS' (e.g. -> cmatrix) so the real
+  # Mr Infinity command (/usr/local/bin/InfinityOS) can run.
+  local RE="/^[[:space:]]*alias[[:space:]]+(InfinityOS|infinityos|mrinfinity|MrInfinity)=/d"
+  for f in /etc/bash.bashrc /etc/profile /etc/zsh/zshrc /etc/profile.d/*.sh; do
+    [ -f "$f" ] && sed -i -E "$RE" "$f" 2>/dev/null || true
+  done
+  for h in /home/* /root; do
+    [ -d "$h" ] || continue
+    for f in "$h/.bashrc" "$h/.bash_aliases" "$h/.zshrc" "$h/.profile"; do
+      [ -f "$f" ] && sed -i -E "$RE" "$f" 2>/dev/null || true
+    done
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -881,6 +897,7 @@ apply_once recovery-menu  fix_recovery_menu
 apply_once full-recovery  fix_full_recovery
 apply_once recovery-more  fix_recovery_more
 apply_once mr-infinity    fix_mr_infinity
+apply_once infinity-alias fix_infinity_alias
 
 apply_once set-adguard-cloudflare-d-20261006165005 fix_set_adguard_cloudflare_d_20261006165005
 
