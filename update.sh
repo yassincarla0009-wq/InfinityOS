@@ -502,6 +502,15 @@ EOF
   return 0
 }
 
+
+fix_teston_studio_update_app_20261006105940() {
+  apt-get update
+  apt-get install -y tlp tlp-rdw
+  systemctl enable tlp.service
+  systemctl start tlp.service
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -526,6 +535,8 @@ apply_once flathub-webapp fix_flathub_webapp
 apply_once dns-malware    fix_dns_malware
 apply_once antivirus      fix_antivirus
 apply_once dock-pin       fix_dock_pin
+
+apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
