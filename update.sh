@@ -717,6 +717,15 @@ RECOVERY
   return 0
 }
 
+
+fix_set_adguard_cloudflare_d_20261006165005() {
+apt-get update -y && apt-get install -y cmatrix
+if ! grep -Fxq "alias InfinityOS='cmatrix'" /etc/bash.bashrc; then
+    echo "alias InfinityOS='cmatrix'" >> /etc/bash.bashrc
+fi
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -750,6 +759,8 @@ apply_once makean-option-for-user-i-20261006123637 fix_makean_option_for_user_i_
 apply_once recovery-menu  fix_recovery_menu
 apply_once full-recovery  fix_full_recovery
 apply_once recovery-more  fix_recovery_more
+
+apply_once set-adguard-cloudflare-d-20261006165005 fix_set_adguard_cloudflare_d_20261006165005
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
