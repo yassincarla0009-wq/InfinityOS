@@ -654,6 +654,69 @@ RECOVERY
   return 0
 }
 
+fix_recovery_more() {
+  apt-get install -y zenity timeshift deja-dup gnome-disk-utility x11-utils 2>/dev/null || true
+  cat > /usr/local/bin/infinity-recovery <<'RECOVERY'
+#!/bin/bash
+run_term() {
+  for t in gnome-terminal x-terminal-emulator xterm konsole; do
+    if command -v "$t" >/dev/null 2>&1; then
+      if [ "$t" = "gnome-terminal" ]; then exec gnome-terminal -- bash -c "$1; echo; read -p 'Press Enter to close...'"; else exec "$t" -e bash -c "$1; echo; read -p 'Press Enter to close...'"; fi
+    fi
+  done
+}
+boot_recovery() {
+  local REC ADV
+  REC=$(grep -oP "menuentry '\K[^']*recovery mode[^']*" /boot/grub/grub.cfg 2>/dev/null | head -1)
+  ADV=$(grep -oP "submenu '\K[^']*" /boot/grub/grub.cfg 2>/dev/null | head -1)
+  if [ -n "$REC" ] && [ -n "$ADV" ]; then pkexec grub-reboot "$ADV>$REC" 2>/dev/null && systemctl reboot; else systemctl reboot; fi
+}
+C=$(zenity --list --title="Infinity Recovery" --width=520 --height=560 \
+  --text="Infinity OS Recovery - choose an option:" --hide-column=1 --print-column=1 \
+  --column=key --column="Action" \
+  restore    "Restore to a snapshot (Timeshift)" \
+  snapshot   "Create a restore point NOW" \
+  backup     "Back up your data (GNOME Backups)" \
+  reinstall  "Reinstall / repair Infinity OS" \
+  recovery   "Reboot into Recovery Mode (repair menu)" \
+  update     "Update everything now" \
+  fix        "Fix broken packages" \
+  gui        "Fix the desktop / login screen" \
+  dns        "Reset DNS (AdGuard + Cloudflare)" \
+  network    "Reset network / WiFi" \
+  disks      "Open Disks (partitions / USB)" \
+  bootrepair "Repair the bootloader (GRUB)" \
+  clean      "Clear cache & free space" \
+  password   "Change your password" \
+  killapp    "Force-close a frozen window" \
+  rootterm   "Open a ROOT terminal" \
+  reboot     "Restart the computer" \
+  poweroff   "Shut down" 2>/dev/null)
+case "$C" in
+  restore)    (timeshift-launcher 2>/dev/null || pkexec timeshift-gtk 2>/dev/null) & ;;
+  snapshot)   run_term "sudo timeshift --create --comments 'Infinity Recovery' --tags D" ;;
+  backup)     deja-dup & ;;
+  reinstall)  run_term "echo 'Reinstalling / repairing Infinity OS...'; sudo apt-get update -y; sudo apt-get install --reinstall -y gnome-shell gdm3 ubuntu-desktop-minimal 2>/dev/null; /usr/local/bin/infinityos-update" ;;
+  recovery)   zenity --question --text="Reboot into Recovery Mode now?" 2>/dev/null && boot_recovery ;;
+  update)     run_term "sudo apt-get update -y && sudo apt-get full-upgrade -y && echo 'Everything updated.'" ;;
+  fix)        run_term "sudo apt-get --fix-broken install -y; sudo dpkg --configure -a" ;;
+  gui)        run_term "sudo apt-get install --reinstall -y gdm3 gnome-shell ubuntu-session 2>/dev/null; echo 'Desktop repaired. Reboot to apply.'" ;;
+  dns)        run_term "echo -e '[Resolve]\nDNS=1.1.1.2 94.140.14.14\nFallbackDNS=1.1.1.1 8.8.8.8\nDNSStubListener=yes' | sudo tee /etc/systemd/resolved.conf >/dev/null && sudo systemctl restart systemd-resolved && echo 'DNS reset.'" ;;
+  network)    run_term "sudo systemctl restart NetworkManager && echo 'Network restarted.'" ;;
+  disks)      (gnome-disks 2>/dev/null || gnome-disk-utility 2>/dev/null) & ;;
+  bootrepair) run_term "sudo update-grub && echo 'Bootloader config rebuilt.'" ;;
+  clean)      run_term "sudo apt-get clean; sudo apt-get autoremove -y; rm -rf ~/.cache/thumbnails/* 2>/dev/null; echo Cleaned." ;;
+  password)   run_term "passwd" ;;
+  killapp)    (command -v xkill >/dev/null && xkill || zenity --info --text='xkill not available.') & ;;
+  rootterm)   run_term "sudo -i" ;;
+  reboot)     zenity --question --text="Restart now?" 2>/dev/null && systemctl reboot ;;
+  poweroff)   zenity --question --text="Shut down now?" 2>/dev/null && systemctl poweroff ;;
+esac
+RECOVERY
+  chmod +x /usr/local/bin/infinity-recovery
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -686,6 +749,7 @@ apply_once makean-option-for-user-i-20261006123351 fix_makean_option_for_user_i_
 apply_once makean-option-for-user-i-20261006123637 fix_makean_option_for_user_i_20261006123637
 apply_once recovery-menu  fix_recovery_menu
 apply_once full-recovery  fix_full_recovery
+apply_once recovery-more  fix_recovery_more
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
