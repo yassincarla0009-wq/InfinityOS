@@ -589,6 +589,71 @@ EOF
   return 0
 }
 
+fix_full_recovery() {
+  apt-get install -y zenity timeshift deja-dup 2>/dev/null || true
+
+  # 1) Make the boot menu + Ubuntu's built-in Recovery Mode reachable (SAFE grub settings, with backup + rollback)
+  if [ -f /etc/default/grub ]; then
+    cp /etc/default/grub /etc/default/grub.infinity.bak 2>/dev/null || true
+    for kv in "GRUB_DEFAULT=saved" "GRUB_TIMEOUT_STYLE=menu" "GRUB_TIMEOUT=5" 'GRUB_DISABLE_RECOVERY="false"'; do
+      k="${kv%%=*}"
+      sed -i "/^[#]*${k}=/d" /etc/default/grub
+      echo "$kv" >> /etc/default/grub
+    done
+    if ! update-grub 2>/dev/null; then
+      cp /etc/default/grub.infinity.bak /etc/default/grub 2>/dev/null || true
+      update-grub 2>/dev/null || true
+    fi
+  fi
+
+  # 2) Full recovery menu: restore, backup, reinstall/repair, boot-to-recovery, root terminal
+  cat > /usr/local/bin/infinity-recovery <<'RECOVERY'
+#!/bin/bash
+run_term() {
+  for t in gnome-terminal x-terminal-emulator xterm konsole; do
+    if command -v "$t" >/dev/null 2>&1; then
+      if [ "$t" = "gnome-terminal" ]; then exec gnome-terminal -- bash -c "$1; echo; read -p 'Press Enter to close...'"; else exec "$t" -e bash -c "$1; echo; read -p 'Press Enter to close...'"; fi
+    fi
+  done
+}
+boot_recovery() {
+  local REC ADV
+  REC=$(grep -oP "menuentry '\K[^']*recovery mode[^']*" /boot/grub/grub.cfg 2>/dev/null | head -1)
+  ADV=$(grep -oP "submenu '\K[^']*" /boot/grub/grub.cfg 2>/dev/null | head -1)
+  if [ -n "$REC" ] && [ -n "$ADV" ]; then
+    pkexec grub-reboot "$ADV>$REC" 2>/dev/null && systemctl reboot
+  else
+    systemctl reboot
+  fi
+}
+C=$(zenity --list --title="Infinity Recovery" --width=500 --height=480 \
+  --text="Infinity OS Recovery - choose an option:" --hide-column=1 --print-column=1 \
+  --column=key --column="Action" \
+  restore    "Restore to a snapshot (Timeshift)" \
+  backup     "Back up your data (GNOME Backups)" \
+  reinstall  "Reinstall / repair Infinity OS" \
+  recovery   "Reboot into Recovery Mode (repair menu)" \
+  fix        "Fix broken packages" \
+  dns        "Reset DNS (AdGuard + Cloudflare)" \
+  clean      "Clear cache & free space" \
+  rootterm   "Open a ROOT terminal" \
+  reboot     "Restart the computer" 2>/dev/null)
+case "$C" in
+  restore)   (timeshift-launcher 2>/dev/null || pkexec timeshift-gtk 2>/dev/null) & ;;
+  backup)    deja-dup & ;;
+  reinstall) run_term "echo 'Reinstalling / repairing Infinity OS...'; sudo apt-get update -y; sudo apt-get install --reinstall -y gnome-shell gdm3 ubuntu-desktop-minimal 2>/dev/null; /usr/local/bin/infinityos-update" ;;
+  recovery)  zenity --question --text="Reboot into Recovery Mode now?\n\nYou'll get repair tools: fix packages, root shell, disk check, network, etc." 2>/dev/null && boot_recovery ;;
+  fix)       run_term "sudo apt-get --fix-broken install -y; sudo dpkg --configure -a" ;;
+  dns)       run_term "echo -e '[Resolve]\nDNS=1.1.1.2 94.140.14.14\nFallbackDNS=1.1.1.1 8.8.8.8\nDNSStubListener=yes' | sudo tee /etc/systemd/resolved.conf >/dev/null && sudo systemctl restart systemd-resolved && echo 'DNS reset.'" ;;
+  clean)     run_term "sudo apt-get clean; sudo apt-get autoremove -y; echo Cleaned." ;;
+  rootterm)  run_term "sudo -i" ;;
+  reboot)    zenity --question --text="Restart now?" 2>/dev/null && systemctl reboot ;;
+esac
+RECOVERY
+  chmod +x /usr/local/bin/infinity-recovery
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -620,6 +685,7 @@ apply_once makean-option-for-user-i-20261006123351 fix_makean_option_for_user_i_
 
 apply_once makean-option-for-user-i-20261006123637 fix_makean_option_for_user_i_20261006123637
 apply_once recovery-menu  fix_recovery_menu
+apply_once full-recovery  fix_full_recovery
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
