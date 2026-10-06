@@ -525,6 +525,70 @@ fix_makean_option_for_user_i_20261006123637() {
   return 0
 }
 
+fix_recovery_menu() {
+  apt-get update -y || true
+  apt-get install -y zenity timeshift deja-dup || return 1
+
+  cat > /usr/local/bin/infinity-recovery <<'RECOVERY'
+#!/bin/bash
+# Infinity Recovery - maintenance, backup & restore menu (Ctrl+Alt+R)
+run_term() {
+  for t in gnome-terminal x-terminal-emulator xterm konsole; do
+    if command -v "$t" >/dev/null 2>&1; then
+      if [ "$t" = "gnome-terminal" ]; then exec gnome-terminal -- bash -c "$1; echo; read -p 'Press Enter to close...'"; else exec "$t" -e bash -c "$1; echo; read -p 'Press Enter to close...'"; fi
+    fi
+  done
+}
+C=$(zenity --list --title="Infinity Recovery" --width=480 --height=440 \
+  --text="Choose a recovery option:" --hide-column=1 --print-column=1 \
+  --column=key --column="Action" \
+  restore   "Restore system to a snapshot (Timeshift)" \
+  backup    "Back up your data (GNOME Backups)" \
+  reinstall "Re-apply / repair Infinity OS setup" \
+  fix       "Fix broken packages" \
+  dns       "Reset DNS (AdGuard + Cloudflare)" \
+  clean     "Clear cache & free up space" \
+  rootterm  "Open a ROOT terminal" \
+  reboot    "Restart the computer" 2>/dev/null)
+case "$C" in
+  restore)   (timeshift-launcher 2>/dev/null || pkexec timeshift-gtk 2>/dev/null) & ;;
+  backup)    deja-dup & ;;
+  reinstall) /usr/local/bin/infinityos-update & ;;
+  fix)       run_term "sudo apt-get --fix-broken install -y; sudo dpkg --configure -a; sudo apt-get update -y" ;;
+  dns)       run_term "echo -e '[Resolve]\nDNS=1.1.1.2 94.140.14.14\nFallbackDNS=1.1.1.1 8.8.8.8\nDNSStubListener=yes' | sudo tee /etc/systemd/resolved.conf >/dev/null && sudo systemctl restart systemd-resolved && echo 'DNS reset.'" ;;
+  clean)     run_term "sudo apt-get clean; sudo apt-get autoremove -y; rm -rf ~/.cache/thumbnails/* 2>/dev/null; echo 'Cleaned.'" ;;
+  rootterm)  run_term "sudo -i" ;;
+  reboot)    zenity --question --text="Restart now?" 2>/dev/null && systemctl reboot ;;
+esac
+RECOVERY
+  chmod +x /usr/local/bin/infinity-recovery
+
+  cat > /usr/share/applications/infinity-recovery.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Infinity Recovery
+Comment=Backup, restore, and repair Infinity OS
+Exec=/usr/local/bin/infinity-recovery
+Icon=system-reboot
+Categories=System;Utility;
+EOF
+  update-desktop-database /usr/share/applications 2>/dev/null || true
+
+  # bind Ctrl+Alt+R to the recovery menu for every user
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    local P="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/infinity-recovery/"
+    local S="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$P"
+    $G "$E gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \"['$P']\"" 2>/dev/null || true
+    $G "$E gsettings set $S name 'Infinity Recovery'" 2>/dev/null || true
+    $G "$E gsettings set $S command '/usr/local/bin/infinity-recovery'" 2>/dev/null || true
+    $G "$E gsettings set $S binding '<Control><Alt>r'" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -555,6 +619,7 @@ apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_
 apply_once makean-option-for-user-i-20261006123351 fix_makean_option_for_user_i_20261006123351
 
 apply_once makean-option-for-user-i-20261006123637 fix_makean_option_for_user_i_20261006123637
+apply_once recovery-menu  fix_recovery_menu
 
 # record the version we're now at (so the notifier knows we're current)
 mkdir -p /etc/infinityos
