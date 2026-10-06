@@ -726,6 +726,127 @@ fi
   return 0
 }
 
+fix_mr_infinity() {
+  command -v python3 >/dev/null 2>&1 || apt-get install -y python3 2>/dev/null || true
+  cat > /usr/local/bin/InfinityOS <<'MRINF'
+#!/usr/bin/env python3
+# Mr Infinity - the built-in AI of Infinity OS. Type: InfinityOS
+import os, sys, json, re, shutil, subprocess, urllib.request, urllib.error
+
+CFG_DIR = os.path.expanduser("~/.config/infinityos")
+CFG = os.path.join(CFG_DIR, "mrinfinity.json")
+UA = "Mozilla/5.0 (X11; Linux x86_64)"
+SYSTEM = (
+  "You are Mr Infinity, the friendly built-in AI assistant of Infinity OS, a Linux desktop. "
+  "You are knowledgeable and helpful - you can answer anything. You can OPEN apps for the user: "
+  "when they want to open/launch something, include a line EXACTLY like [[OPEN: <linux command>]] "
+  "for example [[OPEN: brave-browser]], [[OPEN: firefox]], [[OPEN: nautilus]], [[OPEN: gnome-terminal]]. "
+  "Common apps: brave-browser, firefox, nautilus (files), gnome-terminal, code, gnome-text-editor, "
+  "vlc, gnome-calculator, gnome-control-center (settings), gnome-software, infinity-recovery. "
+  "Only add [[OPEN:]] when they actually want to open something. Keep replies short and friendly."
+)
+
+def load_cfg():
+    try:
+        with open(CFG) as f: return json.load(f)
+    except Exception: return {}
+
+def save_cfg(c):
+    os.makedirs(CFG_DIR, exist_ok=True)
+    with open(CFG, "w") as f: json.dump(c, f)
+    try: os.chmod(CFG, 0o600)
+    except Exception: pass
+
+def open_browser(url):
+    for b in ["brave-browser", "brave-browser-stable", "firefox", "xdg-open"]:
+        if shutil.which(b):
+            subprocess.Popen([b, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            return
+
+def pick_model(key):
+    prefs = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-70b-versatile",
+             "openai/gpt-oss-20b", "llama-3.1-8b-instant", "qwen/qwen3.8-27b"]
+    try:
+        req = urllib.request.Request("https://api.groq.com/openai/v1/models",
+            headers={"Authorization": "Bearer " + key, "User-Agent": UA})
+        ids = [m["id"] for m in json.load(urllib.request.urlopen(req, timeout=20))["data"]]
+        for p in prefs:
+            if p in ids: return p
+        for i in ids:
+            if not any(x in i for x in ["whisper", "guard", "orpheus", "tts"]): return i
+    except Exception:
+        pass
+    return "llama-3.3-70b-versatile"
+
+def setup():
+    print("\n  ∞  Welcome to Mr Infinity - your Infinity OS AI assistant!\n")
+    print("  You need a FREE Groq API key (takes about a minute).")
+    print("  Opening the Groq console in your browser...")
+    open_browser("https://console.groq.com/keys")
+    print("  -> Sign in, click 'Create API Key', copy it, then paste it below.\n")
+    key = input("  Paste your Groq API key (starts with gsk_): ").strip()
+    if not key.startswith("gsk_"):
+        print("  That doesn't look like a Groq key. Run 'InfinityOS' again to retry.")
+        sys.exit(1)
+    print("  Checking your key...")
+    cfg = {"key": key, "model": pick_model(key)}
+    save_cfg(cfg)
+    print("  Saved! (model: %s). You won't have to do this again.\n" % cfg["model"])
+    return cfg
+
+def ask(cfg, messages):
+    body = json.dumps({"model": cfg["model"], "messages": messages, "temperature": 0.4}).encode()
+    req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", data=body,
+        headers={"Authorization": "Bearer " + cfg["key"], "Content-Type": "application/json", "User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)["choices"][0]["message"]["content"]
+
+def run_opens(text):
+    for cmd in re.findall(r"\[\[OPEN:\s*(.+?)\]\]", text):
+        try:
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            print("  \U0001f680 opening: " + cmd)
+        except Exception as e:
+            print("  (couldn't open %s: %s)" % (cmd, e))
+    return re.sub(r"\[\[OPEN:.*?\]\]", "", text).strip()
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] in ("--setkey", "--reset", "setup"):
+        setup(); return
+    cfg = load_cfg()
+    if not cfg.get("key"):
+        cfg = setup()
+    if len(sys.argv) > 1:
+        msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": " ".join(sys.argv[1:])}]
+        try: print("  Mr Infinity:", run_opens(ask(cfg, msgs)))
+        except Exception as e: print("  error:", e)
+        return
+    print("  ∞ Mr Infinity is ready. Ask me anything, or say 'open <app>'. Type 'exit' to quit.\n")
+    msgs = [{"role": "system", "content": SYSTEM}]
+    while True:
+        try: q = input("  You: ").strip()
+        except (EOFError, KeyboardInterrupt): print(); break
+        if q.lower() in ("exit", "quit", "bye"): print("  Bye! ∞"); break
+        if not q: continue
+        msgs.append({"role": "user", "content": q})
+        try:
+            ans = ask(cfg, msgs)
+        except urllib.error.HTTPError as e:
+            print("  (API error %s - your key may be invalid; run 'InfinityOS --setkey')" % e.code); continue
+        except Exception as e:
+            print("  (error: %s)" % e); continue
+        msgs.append({"role": "assistant", "content": ans})
+        print("  Mr Infinity:", run_opens(ans), "\n")
+
+if __name__ == "__main__":
+    main()
+MRINF
+  chmod +x /usr/local/bin/InfinityOS
+  ln -sf /usr/local/bin/InfinityOS /usr/local/bin/infinityos 2>/dev/null || true
+  ln -sf /usr/local/bin/InfinityOS /usr/local/bin/mrinfinity 2>/dev/null || true
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -759,6 +880,7 @@ apply_once makean-option-for-user-i-20261006123637 fix_makean_option_for_user_i_
 apply_once recovery-menu  fix_recovery_menu
 apply_once full-recovery  fix_full_recovery
 apply_once recovery-more  fix_recovery_more
+apply_once mr-infinity    fix_mr_infinity
 
 apply_once set-adguard-cloudflare-d-20261006165005 fix_set_adguard_cloudflare_d_20261006165005
 
