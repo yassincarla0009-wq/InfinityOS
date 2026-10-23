@@ -1642,6 +1642,72 @@ EOF
   return 0
 }
 
+fix_rice_cleanup() {
+  # FINAL desktop state. KEEP: the cool floating dock (dash-to-dock) + WhiteSur.
+  # LAUNCHER: GNOME's built-in app grid (Super+A / Super+Y / the dock grid button).
+  # REMOVE: the earlier rice extensions (ArcMenu, Blur-my-Shell, Just Perfection,
+  # OpenWeather, Logo Menu) and all the Super-key/hotkey hacks.
+  local EXTROOT=/usr/share/gnome-shell/extensions
+  for e in arcmenu@arcmenu.com blur-my-shell@aunetx just-perfection-desktop@just-perfection \
+           openweather-extension@jenslody.de logomenu@aryan_k; do
+    rm -rf "$EXTROOT/$e"
+  done
+  rm -f /etc/dconf/db/local.d/05-infinityos-super \
+        /etc/dconf/db/local.d/06-infinityos-hotkey \
+        /etc/dconf/db/local.d/07-infinityos-launcher
+
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  local LIST="'ubuntu-dock@ubuntu.com', 'ding@rastersoft.com', 'user-theme@gnome-shell-extensions.gcampax.github.com'"
+  [ -d "$EXTROOT/burn-my-windows@schneegans.github.com" ] && LIST="$LIST, 'burn-my-windows@schneegans.github.com'"
+  cat > /etc/dconf/db/local.d/04-infinityos-rice <<EOF
+[org/gnome/shell]
+enabled-extensions=[$LIST]
+
+[org/gnome/shell/keybindings]
+toggle-application-view=['<Super>a', '<Super>y']
+
+[org/gnome/mutter]
+overlay-key='Super_L'
+
+[org/gnome/desktop/interface]
+icon-theme='WhiteSur'
+
+[org/gnome/shell/extensions/dash-to-dock]
+dock-position='BOTTOM'
+extend-height=false
+dock-fixed=false
+intellihide=true
+autohide=true
+transparency-mode='FIXED'
+background-opacity=0.350000
+dash-max-icon-size=46
+show-apps-at-top=true
+show-show-apps-button=true
+show-trash=true
+show-mounts=false
+running-indicator-style='DOTS'
+click-action='minimize'
+custom-theme-shrink=true
+EOF
+  dconf update 2>/dev/null || true
+
+  # live cleanup for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    for e in arcmenu@arcmenu.com blur-my-shell@aunetx just-perfection-desktop@just-perfection openweather-extension@jenslody.de logomenu@aryan_k; do
+      $G "$E gnome-extensions disable $e" 2>/dev/null || true
+    done
+    $G "$E gsettings reset org.gnome.mutter overlay-key" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.keybindings toggle-application-view \"['<Super>a', '<Super>y']\"" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock show-show-apps-button true" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1666,13 +1732,8 @@ apply_once flathub-webapp fix_flathub_webapp
 apply_once dns-malware    fix_dns_malware
 apply_once antivirus      fix_antivirus
 apply_once dock-pin       fix_dock_pin
-apply_once rice-macos-v1  fix_rice_macos
 apply_once flatpak-terminal fix_flatpak_terminal
-apply_once rice-macos-v2  fix_rice_super
-apply_once rice-macos-v3  fix_rice_super2
-apply_once rice-macos-v4  fix_rice_dock_launcher
-apply_once rice-macos-v5  fix_rice_hotkey_y
-apply_once rice-macos-v6  fix_rice_launcher_stock
+apply_once rice-cleanup-v1 fix_rice_cleanup
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
