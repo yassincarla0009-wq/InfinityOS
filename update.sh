@@ -1476,6 +1476,40 @@ PROF
   return 0
 }
 
+fix_rice_super() {
+  # Make the Super key open the ArcMenu launcher INSTEAD of GNOME's overview.
+  # GNOME's overview / workspace switcher stays reachable only via the 3-finger
+  # touchpad swipe (that gesture is on by default - we don't touch it).
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/05-infinityos-super <<'EOF'
+# Super no longer pops GNOME's overview...
+[org/gnome/mutter]
+overlay-key=''
+
+# ...it opens the ArcMenu launcher instead (several key names, for version safety)
+[org/gnome/shell/extensions/arcmenu]
+menu-hotkey='Super_L'
+menu-keybinding-text='Super_L'
+enable-menu-hotkey=true
+arcmenu-hotkey=['<Super>']
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply live for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gsettings set org.gnome.mutter overlay-key ''" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu menu-hotkey 'Super_L'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu menu-keybinding-text 'Super_L'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu enable-menu-hotkey true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu arcmenu-hotkey \"['<Super>']\"" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1502,6 +1536,7 @@ apply_once antivirus      fix_antivirus
 apply_once dock-pin       fix_dock_pin
 apply_once rice-macos-v1  fix_rice_macos
 apply_once flatpak-terminal fix_flatpak_terminal
+apply_once rice-macos-v2  fix_rice_super
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
