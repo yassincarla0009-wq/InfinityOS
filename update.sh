@@ -1456,6 +1456,26 @@ EOF
   return 0
 }
 
+fix_flatpak_terminal() {
+  # Full Flatpak support usable straight from the TERMINAL: the flatpak CLI, the
+  # Flathub remote (system-wide), bash-completion, and a PATH export so anything
+  # you 'flatpak install' is runnable by its command name in any terminal.
+  apt-get update -y 2>/dev/null || true
+  apt-get install -y flatpak gnome-software-plugin-flatpak bash-completion 2>/dev/null || return 1
+  # Flathub, system-wide -> 'flatpak install flathub <app>' just works for everyone
+  flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || return 1
+  # put Flatpak-exported app binaries on PATH for new terminals (system + per-user)
+  cat > /etc/profile.d/zz-infinityos-flatpak.sh <<'PROF'
+# Infinity OS: make Flatpak-exported apps runnable by name in the terminal
+for d in /var/lib/flatpak/exports/bin "$HOME/.local/share/flatpak/exports/bin"; do
+  case ":$PATH:" in *":$d:"*) : ;; *) [ -d "$d" ] && PATH="$PATH:$d" ;; esac
+done
+export PATH
+PROF
+  chmod 644 /etc/profile.d/zz-infinityos-flatpak.sh
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1481,6 +1501,7 @@ apply_once dns-malware    fix_dns_malware
 apply_once antivirus      fix_antivirus
 apply_once dock-pin       fix_dock_pin
 apply_once rice-macos-v1  fix_rice_macos
+apply_once flatpak-terminal fix_flatpak_terminal
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
