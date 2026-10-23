@@ -1510,6 +1510,44 @@ EOF
   return 0
 }
 
+fix_rice_super2() {
+  # v2 was wrong: clearing overlay-key killed the Super signal entirely, so Super
+  # did nothing. Correct way: keep mutter's Super signal ALIVE and let ArcMenu
+  # intercept it via its 'Super_L' hotkey. Then Super opens the ArcMenu launcher,
+  # the overview no longer pops on Super (ArcMenu consumes the press), and the
+  # overview still works from the 3-finger touchpad swipe. If ArcMenu's hotkey
+  # can't catch it on a given version, Super simply falls back to the overview
+  # (never "nothing").
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/05-infinityos-super <<'EOF'
+# keep the Super key signal alive so ArcMenu can catch it
+[org/gnome/mutter]
+overlay-key='Super_L'
+
+# ArcMenu intercepts Super and opens its launcher (both key names, version-safe)
+[org/gnome/shell/extensions/arcmenu]
+arcmenu-hotkey=['Super_L']
+menu-hotkey='Super_L'
+menu-keybinding-text='Super_L'
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply live for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    # undo the bad empty value v2 may have written -> back to the live Super signal
+    $G "$E gsettings reset org.gnome.mutter overlay-key" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu arcmenu-hotkey \"['Super_L']\"" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu menu-hotkey 'Super_L'" 2>/dev/null || true
+    # make sure the launcher is actually enabled
+    $G "$E gnome-extensions enable arcmenu@arcmenu.com" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1537,6 +1575,7 @@ apply_once dock-pin       fix_dock_pin
 apply_once rice-macos-v1  fix_rice_macos
 apply_once flatpak-terminal fix_flatpak_terminal
 apply_once rice-macos-v2  fix_rice_super
+apply_once rice-macos-v3  fix_rice_super2
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
