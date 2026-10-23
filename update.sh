@@ -1578,6 +1578,34 @@ EOF
   return 0
 }
 
+fix_rice_hotkey_y() {
+  # Bind the ArcMenu launcher to a REAL key combo (Super+Y). Unlike a lone Super
+  # (a bare modifier never registers as an accelerator), a real combo binds
+  # reliably. A bare 'y' would hijack the letter while typing, so it's Super+Y.
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/06-infinityos-hotkey <<'EOF'
+[org/gnome/shell/extensions/arcmenu]
+arcmenu-hotkey=['<Super>y']
+menu-hotkey='Custom'
+menu-keybinding-text='<Super>y'
+enable-menu-hotkey=true
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply live for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gnome-extensions enable arcmenu@arcmenu.com" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu arcmenu-hotkey \"['<Super>y']\"" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu menu-hotkey 'Custom'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.arcmenu menu-keybinding-text '<Super>y'" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1607,6 +1635,7 @@ apply_once flatpak-terminal fix_flatpak_terminal
 apply_once rice-macos-v2  fix_rice_super
 apply_once rice-macos-v3  fix_rice_super2
 apply_once rice-macos-v4  fix_rice_dock_launcher
+apply_once rice-macos-v5  fix_rice_hotkey_y
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
