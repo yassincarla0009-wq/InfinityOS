@@ -1323,6 +1323,139 @@ MRINF
   return 0
 }
 
+fix_rice_macos() {
+  # "Liquid glass" macOS/ChromeOS rice: a floating blurred top panel (centered
+  # clock + weather + Infinity logo), a Launchpad-style launcher (ArcMenu) and a
+  # floating rounded dock with trash. KEEPS WhiteSur icons + WhiteSur-Dark as-is.
+  # Extensions are pulled from extensions.gnome.org, which serves the build that
+  # matches THIS GNOME version - so nothing incompatible is ever forced on.
+  apt-get install -y wget unzip libglib2.0-bin gnome-shell-extensions 2>/dev/null || true
+
+  local SV; SV=$(gnome-shell --version 2>/dev/null | grep -oE '[0-9]+' | head -1); SV=${SV:-42}
+  local EXTROOT=/usr/share/gnome-shell/extensions
+  mkdir -p "$EXTROOT" /usr/share/glib-2.0/schemas
+  NET=0
+
+  inst_gnome_ext() {   # $1 = extension UUID ; installs the build matching $SV
+    local uuid="$1" T info dl
+    T=$(mktemp -d)
+    info=$(wget -qO- "https://extensions.gnome.org/extension-info/?uuid=$uuid&shell_version=$SV" 2>/dev/null)
+    if [ -z "$info" ]; then rm -rf "$T"; return 1; fi      # no internet / not found
+    NET=1
+    dl=$(printf '%s' "$info" | tr -d '\\' | grep -oE '"download_url":[ ]*"[^"]+"' | head -1 | sed 's/.*"download_url":[ ]*"//; s/"$//')
+    if [ -z "$dl" ]; then rm -rf "$T"; return 2; fi        # no build for this shell
+    if ! wget -qO "$T/e.zip" "https://extensions.gnome.org$dl" 2>/dev/null; then rm -rf "$T"; return 2; fi
+    rm -rf "$EXTROOT/$uuid"; mkdir -p "$EXTROOT/$uuid"
+    unzip -o "$T/e.zip" -d "$EXTROOT/$uuid" >/dev/null 2>&1
+    if [ -d "$EXTROOT/$uuid/schemas" ]; then
+      glib-compile-schemas "$EXTROOT/$uuid/schemas" 2>/dev/null
+      cp "$EXTROOT/$uuid"/schemas/*.gschema.xml /usr/share/glib-2.0/schemas/ 2>/dev/null
+    fi
+    rm -rf "$T"; return 0
+  }
+
+  local DOCK="ubuntu-dock@ubuntu.com" DING="ding@rastersoft.com"
+  local UTHEME="user-theme@gnome-shell-extensions.gcampax.github.com"
+  local ARC="arcmenu@arcmenu.com" BLUR="blur-my-shell@aunetx"
+  local JP="just-perfection-desktop@just-perfection"
+  local OW="openweather-extension@jenslody.de" LOGO="logomenu@aryan_k"
+
+  inst_gnome_ext "$ARC";  local HAS_ARC=$?
+  inst_gnome_ext "$BLUR"; local HAS_BLUR=$?
+  inst_gnome_ext "$JP";   local HAS_JP=$?
+  inst_gnome_ext "$OW";   local HAS_OW=$?
+  inst_gnome_ext "$LOGO"; local HAS_LOGO=$?
+
+  [ "$NET" = "0" ] && return 1    # never reached the extension server -> retry next update
+
+  glib-compile-schemas /usr/share/glib-2.0/schemas 2>/dev/null || true
+
+  # effective enabled-extensions list = base set + whatever installed cleanly
+  local LIST="'$DOCK', '$DING', '$UTHEME'"
+  [ "$HAS_ARC"  = "0" ] && LIST="$LIST, '$ARC'"
+  [ "$HAS_BLUR" = "0" ] && LIST="$LIST, '$BLUR'"
+  [ "$HAS_JP"   = "0" ] && LIST="$LIST, '$JP'"
+  [ "$HAS_OW"   = "0" ] && LIST="$LIST, '$OW'"
+  [ "$HAS_LOGO" = "0" ] && LIST="$LIST, '$LOGO'"
+  [ -d "$EXTROOT/burn-my-windows@schneegans.github.com" ] && LIST="$LIST, 'burn-my-windows@schneegans.github.com'"
+
+  # system-wide defaults for fresh users (04 loads last -> wins over earlier dock rules)
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/04-infinityos-rice <<EOF
+[org/gnome/shell]
+enabled-extensions=[$LIST]
+
+[org/gnome/desktop/interface]
+icon-theme='WhiteSur'
+
+[org/gnome/shell/extensions/dash-to-dock]
+dock-position='BOTTOM'
+extend-height=false
+dock-fixed=false
+intellihide=true
+autohide=true
+transparency-mode='FIXED'
+background-opacity=0.350000
+dash-max-icon-size=46
+show-apps-at-top=true
+show-trash=true
+show-mounts=false
+running-indicator-style='DOTS'
+click-action='minimize'
+custom-theme-shrink=true
+
+[org/gnome/shell/extensions/arcmenu]
+menu-layout='Eleven'
+distro-icon=0
+menu-button-appearance='Icon'
+override-menu-theme=true
+
+[org/gnome/shell/extensions/blur-my-shell]
+sigma=28
+brightness=0.620000
+
+[org/gnome/shell/extensions/blur-my-shell/panel]
+blur=true
+
+[org/gnome/shell/extensions/blur-my-shell/dash-to-dock]
+blur=true
+
+[org/gnome/shell/extensions/just-perfection]
+clock-menu-position=0
+clock-menu-position-offset=8
+
+[org/gnome/shell/extensions/openweather]
+unit='fahrenheit'
+position-in-panel='center'
+
+[org/gnome/shell/extensions/logomenu]
+menu-button-icon-size=22
+show-power-options=true
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply LIVE for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    [ "$HAS_ARC"  = "0" ] && $G "$E gnome-extensions enable $ARC"  2>/dev/null || true
+    [ "$HAS_BLUR" = "0" ] && $G "$E gnome-extensions enable $BLUR" 2>/dev/null || true
+    [ "$HAS_JP"   = "0" ] && $G "$E gnome-extensions enable $JP"   2>/dev/null || true
+    [ "$HAS_OW"   = "0" ] && $G "$E gnome-extensions enable $OW"   2>/dev/null || true
+    [ "$HAS_LOGO" = "0" ] && $G "$E gnome-extensions enable $LOGO" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dock-fixed false" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock show-trash true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.35" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur'" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1347,6 +1480,7 @@ apply_once flathub-webapp fix_flathub_webapp
 apply_once dns-malware    fix_dns_malware
 apply_once antivirus      fix_antivirus
 apply_once dock-pin       fix_dock_pin
+apply_once rice-macos-v1  fix_rice_macos
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
