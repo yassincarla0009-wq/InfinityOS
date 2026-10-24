@@ -1780,6 +1780,140 @@ fix_kernel_hwe() {
   return 1   # no internet / apt busy -> retry next update
 }
 
+fix_webapp_maker() {
+  # "Web App Maker" - paste a link, it fetches the favicon and creates a
+  # standalone web-app launcher (opens the site in its own window via the
+  # installed Chromium/Brave --app mode). Clean Google-Pixel / Material UI.
+  apt-get install -y python3-gi gir1.2-gtk-3.0 desktop-file-utils 2>/dev/null || true
+
+  cat > /usr/local/bin/infinityos-webapp <<'PYEOF'
+#!/usr/bin/env python3
+import gi, os, re, subprocess, urllib.parse, urllib.request
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gdk
+
+BROWSERS = ["brave-browser", "brave", "google-chrome-stable", "google-chrome",
+            "chromium", "chromium-browser", "microsoft-edge-stable", "microsoft-edge"]
+APPS_DIR = os.path.expanduser("~/.local/share/applications")
+ICON_DIR = os.path.expanduser("~/.local/share/icons")
+
+CSS = b"""
+window { background:#f1f3f4; }
+.card { background:#ffffff; border-radius:24px; }
+.title { font-size:22px; font-weight:800; color:#202124; }
+.subtitle { color:#5f6368; font-size:13px; }
+entry { border-radius:14px; padding:10px 14px; border:1px solid #dadce0; background:#ffffff; color:#202124; }
+entry:focus { border-color:#1a73e8; }
+.pill { background:#1a73e8; color:#ffffff; border-radius:20px; padding:10px 22px; font-weight:700; }
+.pill:hover { background:#1b66c9; }
+.hint { color:#5f6368; font-size:12px; }
+"""
+
+def find_browser():
+    for b in BROWSERS:
+        if subprocess.run(["which", b], capture_output=True).returncode == 0:
+            return b
+    return None
+
+def slug(s):
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", s.strip().lower()).strip("-")
+    return s or "webapp"
+
+class App(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Web App Maker")
+        self.set_default_size(470, 320); self.set_resizable(False)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        prov = Gtk.CssProvider(); prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        for m in ("set_margin_top", "set_margin_bottom", "set_margin_start", "set_margin_end"):
+            getattr(outer, m)(20)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        card.get_style_context().add_class("card")
+        for m in ("set_margin_top", "set_margin_bottom", "set_margin_start", "set_margin_end"):
+            getattr(card, m)(26)
+
+        t = Gtk.Label(label="Create a Web App", xalign=0); t.get_style_context().add_class("title")
+        sub = Gtk.Label(label="Paste a link and turn any site into an app.", xalign=0)
+        sub.get_style_context().add_class("subtitle")
+        card.pack_start(t, False, False, 0); card.pack_start(sub, False, False, 0)
+
+        self.url = Gtk.Entry(placeholder_text="https://example.com")
+        self.name = Gtk.Entry(placeholder_text="App name (e.g. YouTube)")
+        card.pack_start(self.url, False, False, 8)
+        card.pack_start(self.name, False, False, 0)
+
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.status = Gtk.Label(label="", xalign=0); self.status.get_style_context().add_class("hint")
+        btn = Gtk.Button(label="Create Web App"); btn.get_style_context().add_class("pill")
+        btn.connect("clicked", self.make)
+        row.pack_start(self.status, True, True, 0); row.pack_end(btn, False, False, 0)
+        card.pack_start(row, False, False, 10)
+
+        outer.pack_start(card, True, True, 0); self.add(outer)
+
+    def make(self, _):
+        url = self.url.get_text().strip()
+        name = self.name.get_text().strip()
+        if not url:
+            self.status.set_text("Enter a link first."); return
+        if not re.match(r"^https?://", url):
+            url = "https://" + url
+        if not name:
+            name = urllib.parse.urlparse(url).netloc.replace("www.", "").split(".")[0].title()
+        browser = find_browser()
+        if not browser:
+            self.status.set_text("No Brave/Chromium browser found."); return
+        sid = "webapp-" + slug(name)
+        os.makedirs(APPS_DIR, exist_ok=True); os.makedirs(ICON_DIR, exist_ok=True)
+        icon = "applications-internet"
+        try:
+            host = urllib.parse.urlparse(url).netloc
+            ip = os.path.join(ICON_DIR, sid + ".png")
+            urllib.request.urlretrieve(
+                "https://www.google.com/s2/favicons?domain=%s&sz=128" % host, ip)
+            if os.path.getsize(ip) > 100:
+                icon = ip
+        except Exception:
+            pass
+        desktop = (
+            "[Desktop Entry]\nVersion=1.0\nType=Application\nName=%s\n"
+            "Comment=Web App - %s\nExec=%s --app=%s --class=%s --name=%s\n"
+            "Icon=%s\nTerminal=false\nStartupWMClass=%s\nCategories=Network;WebApps;\n"
+            % (name, url, browser, url, sid, sid, icon, sid))
+        path = os.path.join(APPS_DIR, sid + ".desktop")
+        with open(path, "w") as f:
+            f.write(desktop)
+        os.chmod(path, 0o755)
+        subprocess.run(["update-desktop-database", APPS_DIR], capture_output=True)
+        self.status.set_text("✓ '%s' created - find it in your apps!" % name)
+        self.url.set_text(""); self.name.set_text("")
+
+w = App(); w.connect("destroy", Gtk.main_quit); w.show_all(); Gtk.main()
+PYEOF
+  chmod +x /usr/local/bin/infinityos-webapp
+
+  cat > /usr/share/applications/infinityos-webapp.desktop <<'EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Web App Maker
+GenericName=Web App Creator
+Comment=Paste a link and turn any website into an app
+Exec=/usr/local/bin/infinityos-webapp
+Icon=applications-internet
+Terminal=false
+Categories=Network;Utility;
+Keywords=web;app;pwa;site;shortcut;chrome;brave;
+StartupNotify=true
+EOF
+  update-desktop-database /usr/share/applications 2>/dev/null || true
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1808,6 +1942,7 @@ apply_once flatpak-terminal fix_flatpak_terminal
 apply_once rice-cleanup-v1 fix_rice_cleanup
 apply_once ui-polish-v1   fix_ui_polish
 apply_once kernel-hwe-v1  fix_kernel_hwe
+apply_once webapp-maker-v1 fix_webapp_maker
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
