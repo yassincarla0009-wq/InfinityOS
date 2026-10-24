@@ -1982,6 +1982,24 @@ EOF
   return 0
 }
 
+fix_macos_revert() {
+  # Undo the macOS polish (macos-polish-v1): remove its override file and put the
+  # window buttons back on the RIGHT and the dock back to its previous size/opacity.
+  rm -f /etc/dconf/db/local.d/08-infinityos-macos
+  dconf update 2>/dev/null || true
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:minimize,maximize,close'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 46" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.35" 2>/dev/null || true
+    $G "$E gsettings reset org.gnome.desktop.wm.preferences action-double-click-titlebar" 2>/dev/null || true
+    $G "$E gsettings reset org.gnome.shell.extensions.dash-to-dock scroll-action" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -2011,7 +2029,7 @@ apply_once rice-cleanup-v1 fix_rice_cleanup
 apply_once ui-polish-v1   fix_ui_polish
 apply_once kernel-hwe-v1  fix_kernel_hwe
 apply_once webapp-maker-v1 fix_webapp_maker
-apply_once macos-polish-v1 fix_macos_polish
+apply_once macos-revert-v1 fix_macos_revert
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
