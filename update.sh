@@ -1708,6 +1708,78 @@ EOF
   return 0
 }
 
+fix_ui_polish() {
+  # Tasteful, RELIABLE UI upgrade - only stock gsettings + a cursor theme, no
+  # fragile shell extensions. Matching WhiteSur cursors, cleaner Inter font,
+  # mac-style window buttons, centered new windows, battery % and weekday clock.
+  apt-get install -y fonts-inter git 2>/dev/null || true
+
+  # matching macOS-style cursor theme (best-effort)
+  local TMP; TMP=$(mktemp -d)
+  if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-cursors.git "$TMP/wc" 2>/dev/null; then
+    ( cd "$TMP/wc" && ./install.sh ) 2>/dev/null || true
+  fi
+  # RESTORE the WhiteSur icons (re-install in case they went missing) then refresh cache
+  if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-icon-theme.git "$TMP/wi" 2>/dev/null; then
+    ( cd "$TMP/wi" && ./install.sh -d /usr/share/icons ) 2>/dev/null || true
+    gtk-update-icon-cache /usr/share/icons/WhiteSur 2>/dev/null || true
+  fi
+  rm -rf "$TMP"
+
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/06-infinityos-ui <<'EOF'
+[org/gnome/desktop/interface]
+cursor-theme='WhiteSur-cursors'
+icon-theme='WhiteSur'
+font-name='Inter 11'
+document-font-name='Inter 11'
+monospace-font-name='Ubuntu Mono 13'
+color-scheme='prefer-dark'
+enable-hot-corners=true
+clock-show-weekday=true
+show-battery-percentage=true
+font-antialiasing='rgba'
+
+[org/gnome/desktop/wm/preferences]
+button-layout='appmenu:minimize,maximize,close'
+
+[org/gnome/mutter]
+center-new-windows=true
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply live for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gsettings set org.gnome.desktop.interface cursor-theme 'WhiteSur-cursors'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface icon-theme 'WhiteSur'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface font-name 'Inter 11'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface document-font-name 'Inter 11'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface monospace-font-name 'Ubuntu Mono 13'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface show-battery-percentage true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.interface clock-show-weekday true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:minimize,maximize,close'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.mutter center-new-windows true" 2>/dev/null || true
+  done
+  return 0
+}
+
+fix_kernel_hwe() {
+  # Update to Ubuntu's official HWE (Hardware Enablement) kernel - newer kernel
+  # (22.04 -> 6.8), better hardware support and fixes. SAFE: the previous kernel
+  # stays installed and in the GRUB menu as a fallback, so a boot can never be
+  # lost. Does NOT force a reboot - the new kernel takes effect next restart.
+  apt-get update -y 2>/dev/null || true
+  if apt-get install -y --install-recommends linux-generic-hwe-22.04 2>/dev/null; then
+    update-grub 2>/dev/null || true
+    return 0
+  fi
+  return 1   # no internet / apt busy -> retry next update
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1734,6 +1806,8 @@ apply_once antivirus      fix_antivirus
 apply_once dock-pin       fix_dock_pin
 apply_once flatpak-terminal fix_flatpak_terminal
 apply_once rice-cleanup-v1 fix_rice_cleanup
+apply_once ui-polish-v1   fix_ui_polish
+apply_once kernel-hwe-v1  fix_kernel_hwe
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
