@@ -1914,6 +1914,74 @@ EOF
   return 0
 }
 
+fix_macos_polish() {
+  # Make the desktop feel more like macOS - RELIABLE stock gsettings + WhiteSur only
+  # (no fragile shell extensions). Traffic-light window buttons on the LEFT, a
+  # refined floating dock (kept, just more Mac), centered windows, hot corners.
+  apt-get install -y git sassc 2>/dev/null || true
+
+  # make sure WhiteSur (with its round mac-style window buttons) is present
+  local TMP; TMP=$(mktemp -d)
+  if git clone --depth=1 https://github.com/vinceliuice/WhiteSur-gtk-theme.git "$TMP/wt" 2>/dev/null; then
+    ( cd "$TMP/wt" && ./install.sh -d /usr/share/themes -c Dark ) 2>/dev/null || true
+  fi
+  rm -rf "$TMP"
+
+  mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+  [ -f /etc/dconf/profile/user ] || printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user
+  cat > /etc/dconf/db/local.d/08-infinityos-macos <<'EOF'
+# macOS-style: traffic-light buttons on the LEFT
+[org/gnome/desktop/wm/preferences]
+button-layout='close,minimize,maximize:appmenu'
+action-double-click-titlebar='toggle-maximize'
+
+[org/gnome/mutter]
+center-new-windows=true
+
+[org/gnome/desktop/interface]
+enable-hot-corners=true
+
+# refined macOS-style dock (kept - just tuned)
+[org/gnome/shell/extensions/dash-to-dock]
+dock-position='BOTTOM'
+extend-height=false
+dock-fixed=false
+intellihide=true
+autohide=true
+transparency-mode='FIXED'
+background-opacity=0.400000
+custom-theme-shrink=true
+dash-max-icon-size=52
+show-apps-at-top=false
+show-show-apps-button=true
+show-trash=true
+show-mounts=false
+running-indicator-style='DOTS'
+click-action='minimize'
+scroll-action='cycle-windows'
+EOF
+  dconf update 2>/dev/null || true
+
+  # apply live for everyone already logged in
+  for u in $(ls /home 2>/dev/null); do
+    local uid; uid=$(id -u "$u" 2>/dev/null) || continue
+    local G="su - $u -c"
+    local E="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+    $G "$E gsettings set org.gnome.desktop.wm.preferences button-layout 'close,minimize,maximize:appmenu'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.mutter center-new-windows true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 52" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock transparency-mode 'FIXED'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock background-opacity 0.40" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock running-indicator-style 'DOTS'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock click-action 'minimize'" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock intellihide true" 2>/dev/null || true
+    $G "$E gsettings set org.gnome.shell.extensions.dash-to-dock autohide true" 2>/dev/null || true
+  done
+  return 0
+}
+
 # ===== Run =====
 echo "Checking Infinity OS fixes (each applies once per laptop)..."
 
@@ -1943,6 +2011,7 @@ apply_once rice-cleanup-v1 fix_rice_cleanup
 apply_once ui-polish-v1   fix_ui_polish
 apply_once kernel-hwe-v1  fix_kernel_hwe
 apply_once webapp-maker-v1 fix_webapp_maker
+apply_once macos-polish-v1 fix_macos_polish
 
 apply_once teston-studio-update-app-20261006105940 fix_teston_studio_update_app_20261006105940
 
